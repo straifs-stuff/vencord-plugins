@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
-import { mkdir, readdir, realpath } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
-import { FileFinder } from "@ff-labs/fff-node";
+import { dirname, join, resolve } from "node:path";
+import { rgPath } from "@vscode/ripgrep";
 
 
 interface Output {
@@ -101,75 +101,65 @@ export function validateCheckout(path: string): CheckoutValidation {
     };
 }
 
-async function discoverWithFff(searchRoot: string, timeoutMs: number): Promise<CheckoutTarget[]> {
-    let finder: FileFinder | undefined;
+async function discoverWithRipgrep(searchRoot: string, timeoutMs: number, maxDepth: number): Promise<CheckoutTarget[]> {
+    const args = [
+        "--no-config",
+        "--files",
+        "--hidden",
+        "--no-ignore",
+        "--no-messages",
+        "--null",
+        "--glob",
+        "package.json"
+    ];
+    for (const name of Object.keys(DISCOVERY_SKIP_NAMES))
+        args.push("--glob", `!**/${name}/**`);
+    for (const prefix of DISCOVERY_SKIP_PREFIXES)
+        args.push("--glob", `!${prefix}/**`);
+    if (Number.isFinite(maxDepth))
+        args.push("--max-depth", String(Math.max(0, Math.ceil(maxDepth)) + 1));
+
+    const targets = new Map<string, CheckoutTarget>();
+    let timedOut = false;
 
     try {
-        const created = FileFinder.create({
-            basePath: searchRoot,
-            enableHomeDirScanning: searchRoot === resolve(homedir()),
-            disableContentIndexing: true,
-            disableMmapCache: true,
-            disableWatch: true
+        await new Promise<void>((resolveSearch, reject) => {
+            const child = spawn(rgPath, args, {
+                cwd: searchRoot,
+                stdio: ["ignore", "pipe", "ignore"]
+            });
+            let pending = "";
+
+            child.stdout.setEncoding("utf8");
+            child.stdout.on("data", (chunk: string) => {
+                const paths = `${pending}${chunk}`.split("\0");
+                pending = paths.pop() ?? "";
+                for (const path of paths) {
+                    const validation = validateCheckout(dirname(resolve(searchRoot, path)));
+                    if (validation.target) targets.set(validation.target.root, validation.target);
+                }
+            });
+
+            const timer = Number.isFinite(timeoutMs)
+                ? setTimeout(() => {
+                    timedOut = true;
+                    child.kill();
+                }, Math.max(0, timeoutMs))
+                : undefined;
+            child.once("error", error => {
+                clearTimeout(timer);
+                reject(error);
+            });
+            child.once("close", () => {
+                clearTimeout(timer);
+                resolveSearch();
+            });
         });
-        if (!created.ok) return [];
-        finder = created.value;
-
-        const ready = await finder.waitForScan(timeoutMs);
-        if (!ready.ok || !ready.value) return [];
-
-        const targets = new Map<string, CheckoutTarget>();
-        const pageSize = 500;
-        for (let pageIndex = 0; ; pageIndex++) {
-            const result = finder.glob("**/package.json", { pageIndex, pageSize });
-            if (!result.ok) return [];
-
-            for (const item of result.value.items) {
-                const validation = validateCheckout(dirname(resolve(searchRoot, item.relativePath)));
-                if (validation.target) targets.set(validation.target.root, validation.target);
-            }
-
-            if ((pageIndex + 1) * pageSize >= result.value.totalMatched || result.value.items.length === 0)
-                break;
-        }
-
-        return [...targets.values()];
     } catch {
         return [];
-    } finally {
-        finder?.destroy();
-    }
-}
-
-async function discoverIgnoredTargets(searchRoot: string, maxDepth: number): Promise<CheckoutTarget[]> {
-    const targets = new Map<string, CheckoutTarget>();
-    const queue = [{ directory: searchRoot, depth: 0 }];
-
-    while (queue.length > 0) {
-        const current = queue.shift();
-        if (!current) break;
-
-        const validation = validateCheckout(current.directory);
-        if (validation.target) {
-            targets.set(validation.target.root, validation.target);
-            continue;
-        }
-        if (current.depth >= maxDepth) continue;
-
-        try {
-            const entries = await readdir(current.directory, { withFileTypes: true });
-            for (const entry of entries) {
-                if (!entry.isDirectory() || DISCOVERY_SKIP_NAMES[entry.name]) continue;
-                const directory = join(current.directory, entry.name);
-                const relativePath = relative(searchRoot, directory).replaceAll("\\", "/");
-                if (DISCOVERY_SKIP_PREFIXES.some(prefix => relativePath === prefix || relativePath.startsWith(`${prefix}/`)))
-                    continue;
-                queue.push({ directory, depth: current.depth + 1 });
-            }
-        } catch {}
     }
 
-    return [...targets.values()];
+    return timedOut ? [] : [...targets.values()];
 }
 
 export async function discoverTargets({
@@ -178,12 +168,8 @@ export async function discoverTargets({
     maxDepth = Number.POSITIVE_INFINITY
 }: DiscoveryOptions = {}): Promise<CheckoutTarget[]> {
     const searchRoot = resolve(root);
-    const discovered = await Promise.all([
-        discoverWithFff(searchRoot, timeoutMs),
-        discoverIgnoredTargets(searchRoot, maxDepth)
-    ]);
-    const targets = new Map(discovered.flat().map(target => [target.root, target]));
-    return [...targets.values()].sort((left, right) =>
+    const targets = await discoverWithRipgrep(searchRoot, timeoutMs, maxDepth);
+    return targets.sort((left, right) =>
         left.client.localeCompare(right.client) || left.root.localeCompare(right.root)
     );
 }

@@ -144,3 +144,7 @@ vite.config.ts.timestamp-*
 
 # Cloned docs & repositories
 cloned/
+
+# The compiled CLI is committed so pnpx can install directly from GitHub.
+!/dist/
+!/dist/**

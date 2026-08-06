@@ -1,0 +1,41 @@
+{
+  "name": "@straifs-stuff/plugins",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Installer and manager for StraiF's Vencord and Equicord user plugins",
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/straifs-stuff/plugins.git"
+  },
+  "bin": {
+    "straif-plugins": "./dist/index.js"
+  },
+  "files": [
+    "cli",
+    "dist",
+    "mediacompress",
+    "tsconfig.build.json",
+    "tsconfig.json"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "test": "pnpm typecheck && node --test test/cli.test.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "@clack/core": "^1.4.3",
+    "@clack/prompts": "^1.7.0",
+    "@ff-labs/fff-node": "^0.10.1",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,9 +1,39 @@
 import { readdirSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { Prompt } from "@clack/core";
 import { autocomplete, cancel, confirm, intro, isCancel, log, multiselect, note as clackNote, outro, select } from "@clack/prompts";
 import pc from "picocolors";
-import { validateCheckout } from "./checkout.js";
+import { discoverTargets, validateCheckout } from "./checkout.js";
+export async function locateTarget(prompter, root = homedir(), discover = discoverTargets) {
+    const method = await prompter.choose("How would you like to find your Equicord or Vencord folder?", [
+        {
+            value: "auto",
+            label: "Detect automatically",
+            hint: "Recommended, may take some time on slower hardware"
+        },
+        {
+            value: "manual",
+            label: "Locate manually",
+            hint: "Use the terminal folder browser"
+        }
+    ]);
+    if (method === "manual")
+        return prompter.browseTarget(root);
+    prompter.info("Searching for local installations...");
+    const discovered = await discover({ root });
+    const foundMessage = `Found ${discovered.length} local installation${discovered.length === 1 ? "" : "s"}.`;
+    if (discovered.length === 0)
+        prompter.warn(foundMessage);
+    else
+        prompter.success(foundMessage);
+    if (discovered.length === 0)
+        prompter.note("Choose the main folder where you downloaded and built Equicord or Vencord. It should contain a src folder and a package.json file.", "Choose the local build folder");
+    const selectedTarget = discovered.length > 0
+        ? await prompter.chooseTarget(discovered)
+        : null;
+    return selectedTarget ?? prompter.browseTarget(root);
+}
 const BROWSE_VALUE = "\0browse";
 const theme = {
     accent: pc.cyan,

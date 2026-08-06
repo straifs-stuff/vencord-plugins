@@ -8,7 +8,7 @@ import test from "node:test";
 import { loadCatalog } from "../cli/catalog.ts";
 import { buildTarget, discoverTargets, ensureTarget, resolveTarget, validateCheckout } from "../cli/checkout.ts";
 import { loadRegistry, removePlugins, syncPlugins } from "../cli/manager.ts";
-import { pluginLabel } from "../cli/ui.ts";
+import { locateTarget, pluginLabel } from "../cli/ui.ts";
 import pc from "picocolors";
 
 function pluginSource(value) {
@@ -79,6 +79,72 @@ function runGit(cwd, args) {
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim();
 }
+
+test("manual target selection opens the terminal browser without auto-detection", async () => {
+    let prompt;
+    let discoveryCalls = 0;
+    const selected = await locateTarget({
+        async choose(message, options) {
+            prompt = { message, options };
+            return "manual";
+        },
+        async browseTarget(root) {
+            assert.equal(root, "/starting-folder");
+            return "/chosen-folder";
+        }
+    }, "/starting-folder", async () => {
+        discoveryCalls++;
+        return [];
+    });
+
+    assert.equal(selected, "/chosen-folder");
+    assert.equal(discoveryCalls, 0);
+    assert.match(prompt.message, /How would you like to find/);
+    assert.deepEqual(prompt.options, [
+        {
+            value: "auto",
+            label: "Detect automatically",
+            hint: "Recommended, may take some time on slower hardware"
+        },
+        {
+            value: "manual",
+            label: "Locate manually",
+            hint: "Use the terminal folder browser"
+        }
+    ]);
+});
+
+test("automatic target selection runs discovery and offers detected builds", async () => {
+    const targets = [{ client: "vencord", root: "/detected-folder", version: "1.15.0" }];
+    const messages = [];
+    const selected = await locateTarget({
+        async choose() {
+            return "auto";
+        },
+        async chooseTarget(discovered) {
+            assert.deepEqual(discovered, targets);
+            return discovered[0].root;
+        },
+        async browseTarget() {
+            assert.fail("The folder browser should not open when a detected build is selected");
+        },
+        info(message) {
+            messages.push(message);
+        },
+        success(message) {
+            messages.push(message);
+        }
+    }, "/starting-folder", async options => {
+        assert.deepEqual(options, { root: "/starting-folder" });
+        return targets;
+    });
+
+    assert.equal(selected, "/detected-folder");
+    assert.deepEqual(messages, [
+        "Searching for local installations...",
+        "Found 1 local installation."
+    ]);
+});
 
 test("plugin statuses clearly explain their state", () => {
     const plugin = { displayName: "DemoPlugin" };

@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { loadCatalog } from "./catalog.js";
-import { buildTarget, discoverTargets, ensureTarget, resolveTarget } from "./checkout.js";
+import { buildTarget, ensureTarget, resolveTarget } from "./checkout.js";
 import { loadRegistry, removePlugins, syncPlugins } from "./manager.js";
-import { createPrompter, pluginLabel, PromptCancelledError } from "./ui.js";
+import { createPrompter, locateTarget, pluginLabel, PromptCancelledError } from "./ui.js";
 async function selectPlugins(command, catalog, registry, prompter) {
     if (command === "remove") {
         const ids = Object.keys(registry.plugins);
@@ -31,19 +30,8 @@ async function main() {
     const prompter = createPrompter();
     try {
         prompter.note("This installer needs the folder where you downloaded and built\nEquicord or Vencord. It cannot add plugins to a copy installed\nwith the normal installer.\n\nIf you have not built your client on this computer yet, follow\nits guide through the `pnpm inject` step, then return here.\n\nEquicord  https://docs.equicord.org/building-from-source\nVencord   https://docs.vencord.dev/installing/", "A locally built copy of Equicord or Vencord is required");
-        prompter.info("Searching for local installations...");
-        const [catalog, discovered] = await Promise.all([loadCatalog(), discoverTargets()]);
-        const foundMessage = `Found ${discovered.length} local installation${discovered.length === 1 ? "" : "s"}.`;
-        if (discovered.length === 0)
-            prompter.warn(foundMessage);
-        else
-            prompter.success(foundMessage);
-        if (discovered.length === 0)
-            prompter.note("Choose the main folder where you downloaded and built Equicord or Vencord. It should contain a src folder and a package.json file.", "Choose the local build folder");
-        const selectedTarget = discovered.length > 0
-            ? await prompter.chooseTarget(discovered)
-            : null;
-        const target = selectedTarget ?? await prompter.browseTarget(homedir());
+        const target = await locateTarget(prompter);
+        const catalog = await loadCatalog();
         const userpluginsDir = await ensureTarget(await resolveTarget(target));
         const targetRoot = resolve(userpluginsDir, "../..");
         const registry = await loadRegistry(userpluginsDir);

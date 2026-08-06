@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import { loadCatalog, type Plugin } from "./catalog.ts";
-import { buildTarget, discoverTargets, ensureTarget, resolveTarget } from "./checkout.ts";
+import { buildTarget, ensureTarget, resolveTarget } from "./checkout.ts";
 import { loadRegistry, removePlugins, type Registry, syncPlugins } from "./manager.ts";
 import {
     createPrompter,
+    locateTarget,
     pluginLabel,
     PromptCancelledError,
     type Command,
@@ -52,22 +52,8 @@ async function main(): Promise<void> {
             "A locally built copy of Equicord or Vencord is required"
         );
 
-        prompter.info("Searching for local installations...");
-        const [catalog, discovered] = await Promise.all([loadCatalog(), discoverTargets()]);
-        const foundMessage = `Found ${discovered.length} local installation${discovered.length === 1 ? "" : "s"}.`;
-        if (discovered.length === 0) prompter.warn(foundMessage);
-        else prompter.success(foundMessage);
-
-        if (discovered.length === 0)
-            prompter.note(
-                "Choose the main folder where you downloaded and built Equicord or Vencord. It should contain a src folder and a package.json file.",
-                "Choose the local build folder"
-            );
-
-        const selectedTarget = discovered.length > 0
-            ? await prompter.chooseTarget(discovered)
-            : null;
-        const target = selectedTarget ?? await prompter.browseTarget(homedir());
+        const target = await locateTarget(prompter);
+        const catalog = await loadCatalog();
         const userpluginsDir = await ensureTarget(await resolveTarget(target));
         const targetRoot = resolve(userpluginsDir, "../..");
         const registry = await loadRegistry(userpluginsDir);

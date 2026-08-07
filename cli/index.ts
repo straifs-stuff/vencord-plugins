@@ -2,7 +2,7 @@
 
 import { resolve } from "node:path";
 
-import { loadCatalog, type Plugin } from "./catalog.ts";
+import { loadCatalog, prepareCatalogSource, type Plugin } from "./catalog.ts";
 import { buildTarget, ensureTarget, resolveTarget } from "./checkout.ts";
 import { loadRegistry, removePlugins, type Registry, syncPlugins } from "./manager.ts";
 import { ensurePluginTools } from "./tools.ts";
@@ -52,6 +52,7 @@ async function selectPlugins(
 
 async function main(): Promise<void> {
     const prompter = createPrompter();
+    let cleanupCatalog = async (): Promise<void> => {};
 
     try {
         prompter.note(
@@ -60,7 +61,9 @@ async function main(): Promise<void> {
         );
 
         const target = await locateTarget(prompter);
-        const catalog = await loadCatalog();
+        const catalogSource = await prepareCatalogSource();
+        cleanupCatalog = catalogSource.cleanup;
+        const catalog = await loadCatalog(catalogSource.root);
         const userpluginsDir = await ensureTarget(await resolveTarget(target));
         const targetRoot = resolve(userpluginsDir, "../..");
         const registry = await loadRegistry(userpluginsDir);
@@ -134,6 +137,7 @@ async function main(): Promise<void> {
             );
         }
     } finally {
+        await cleanupCatalog();
         prompter.close();
     }
 }

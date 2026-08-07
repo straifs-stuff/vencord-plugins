@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { loadCatalog } from "../cli/catalog.ts";
+import { loadCatalog, prepareCatalogSource } from "../cli/catalog.ts";
 import { buildTarget, discoverTargets, ensureTarget, resolveTarget, validateCheckout } from "../cli/checkout.ts";
 import { loadRegistry, removePlugins, syncPlugins } from "../cli/manager.ts";
 import { ensurePluginTools, extractWindowsArchive, handBrakeAsset, readHandBrakeResolution } from "../cli/tools.ts";
@@ -324,6 +324,42 @@ test("catalog tracks the current and latest main commits", async () => {
         }),
         `DemoPlugin — Update available · ${firstCommit.slice(0, 7)} → ${latestCommit.slice(0, 7)}`
     );
+});
+
+test("packaged installer refreshes plugin files from remote main", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "straif-plugins-packaged-source-"));
+    const packagedRoot = join(fixture, "package");
+    const sourceRoot = join(fixture, "source");
+    const remoteRoot = join(fixture, "origin.git");
+    await mkdir(packagedRoot);
+    await mkdir(sourceRoot);
+    await createSource(packagedRoot, "stale");
+    await createSource(sourceRoot, "current");
+
+    runGit(sourceRoot, ["init", "--initial-branch=main"]);
+    runGit(sourceRoot, ["config", "user.name", "Test User"]);
+    runGit(sourceRoot, ["config", "user.email", "test@example.com"]);
+    runGit(sourceRoot, ["add", "."]);
+    runGit(sourceRoot, ["commit", "-m", "Current plugin"]);
+    runGit(fixture, ["init", "--bare", remoteRoot]);
+    runGit(sourceRoot, ["remote", "add", "origin", remoteRoot]);
+    runGit(sourceRoot, ["push", "-u", "origin", "main"]);
+    const currentCommit = runGit(sourceRoot, ["rev-parse", "HEAD"]);
+
+    const prepared = await prepareCatalogSource({
+        sourceRoot: packagedRoot,
+        packageRoot: packagedRoot,
+        repositoryUrl: remoteRoot
+    });
+    const checkoutRoot = prepared.root;
+    try {
+        assert.match(await readFile(join(checkoutRoot, "demoPlugin", "index.ts"), "utf8"), /marker: "current"/);
+        const [plugin] = await loadCatalog(checkoutRoot);
+        assert.equal(plugin.sourceCommit, currentCommit);
+    } finally {
+        await prepared.cleanup();
+    }
+    await assert.rejects(readFile(join(checkoutRoot, "demoPlugin", "index.ts"), "utf8"));
 });
 
 test("plugin manager updates an installed commit pin even when files are unchanged", async () => {

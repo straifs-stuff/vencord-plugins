@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
-import { loadCatalog } from "./catalog.js";
+import { loadCatalog, prepareCatalogSource } from "./catalog.js";
 import { buildTarget, ensureTarget, resolveTarget } from "./checkout.js";
 import { loadRegistry, removePlugins, syncPlugins } from "./manager.js";
 import { ensurePluginTools } from "./tools.js";
@@ -33,10 +33,13 @@ async function selectPlugins(command, catalog, registry, prompter) {
 // Main installer workflow
 async function main() {
     const prompter = createPrompter();
+    let cleanupCatalog = async () => { };
     try {
         prompter.note("This installer needs the folder where you downloaded and built\nEquicord or Vencord. It cannot add plugins to a copy installed\nwith the normal installer.\n\nIf you have not built your client on this computer yet, follow\nits guide through the `pnpm inject` step, then return here.\n\nEquicord  https://docs.equicord.org/building-from-source\nVencord   https://docs.vencord.dev/installing/", "A locally built copy of Equicord or Vencord is required");
         const target = await locateTarget(prompter);
-        const catalog = await loadCatalog();
+        const catalogSource = await prepareCatalogSource();
+        cleanupCatalog = catalogSource.cleanup;
+        const catalog = await loadCatalog(catalogSource.root);
         const userpluginsDir = await ensureTarget(await resolveTarget(target));
         const targetRoot = resolve(userpluginsDir, "../..");
         const registry = await loadRegistry(userpluginsDir);
@@ -98,6 +101,7 @@ async function main() {
         }
     }
     finally {
+        await cleanupCatalog();
         prompter.close();
     }
 }

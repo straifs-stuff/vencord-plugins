@@ -1,0 +1,83 @@
+.vc-media-compress-icon-container.vc-media-compress-icon-container {
+    height: 20px !important; /* Override Discord's ActionBarIcon size clamp. */
+    max-height: none !important; /* Override Discord's ActionBarIcon size clamp. */
+    max-width: none !important; /* Override Discord's ActionBarIcon size clamp. */
+    overflow: visible;
+    width: 20px !important; /* Override Discord's ActionBarIcon size clamp. */
+}
+
+.vc-media-compress-icon {
+    transform-box: view-box;
+    transform-origin: center;
+}
+
+.vc-media-compress-icon-compress {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.vc-media-compress-icon-progress {
+    filter: blur(8px);
+    opacity: 0;
+    transform: scale(0.5);
+}
+
+.vc-media-compress-icon-complete {
+    color: var(--status-positive);
+    filter: blur(8px);
+    opacity: 0;
+    transform: scale(0.5);
+}
+
+.vc-media-compress-is-compressing .vc-media-compress-icon-compress {
+    animation: vc-media-compress-icon-out 150ms ease-in forwards;
+}
+
+.vc-media-compress-is-compressing .vc-media-compress-icon-progress {
+    animation: vc-media-compress-icon-in 300ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.vc-media-compress-is-complete .vc-media-compress-icon-progress {
+    animation: vc-media-compress-icon-out 150ms ease-in forwards;
+}
+
+.vc-media-compress-is-complete .vc-media-compress-icon-complete {
+    animation: vc-media-compress-icon-in 300ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.vc-media-compress-spinner {
+    animation: vc-media-compress-spin 1s linear infinite;
+    transform-box: view-box;
+    transform-origin: center;
+}
+
+@keyframes vc-media-compress-icon-out {
+    to {
+        filter: blur(8px);
+        opacity: 0;
+        transform: scale(0.5);
+    }
+}
+
+@keyframes vc-media-compress-icon-in {
+    to {
+        filter: blur(0);
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes vc-media-compress-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vc-media-compress-is-compressing .vc-media-compress-icon-compress,
+    .vc-media-compress-is-compressing .vc-media-compress-icon-progress,
+    .vc-media-compress-is-complete .vc-media-compress-icon-complete,
+    .vc-media-compress-spinner {
+        animation-duration: 1ms;
+    }
+}

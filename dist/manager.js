@@ -1,7 +1,7 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, lstat, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
+import { spawnPnpm } from "./pnpm.js";
 // Registry configuration
 const REGISTRY_FILENAME = ".straif-plugins.json";
 const REGISTRY_VERSION = 2;
@@ -50,7 +50,6 @@ async function hashDirectory(path) {
 // Package dependency installation
 async function runPnpmInstall(directory) {
     const hasLockfile = await pathExists(join(directory, "pnpm-lock.yaml"));
-    const executable = process.env.STRAIF_PNPM || (process.platform === "win32" ? "pnpm.cmd" : "pnpm");
     const args = [
         "install",
         "--prod",
@@ -58,7 +57,7 @@ async function runPnpmInstall(directory) {
         hasLockfile ? "--frozen-lockfile" : "--no-frozen-lockfile"
     ];
     const { promise, resolve: resolveInstall, reject } = Promise.withResolvers();
-    const child = spawn(executable, args, { cwd: directory, stdio: "inherit" });
+    const child = spawnPnpm(args, { cwd: directory, stdio: "inherit" });
     child.once("error", error => reject(error.code === "ENOENT"
         ? new Error("pnpm was not found. Install pnpm, then try again.")
         : error));

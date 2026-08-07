@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { rgPath } from "@vscode/ripgrep";
 
+import { spawnPnpm } from "./pnpm.ts";
+
 // Checkout model
 
 interface Output {
@@ -203,11 +205,10 @@ export async function ensureTarget(userpluginsDir: string): Promise<string> {
 }
 
 export async function buildTarget(targetRoot: string, output: Output = process.stdout): Promise<void> {
-    const executable = process.env.STRAIF_PNPM || (process.platform === "win32" ? "pnpm.cmd" : "pnpm");
     output.write("Applying the plugin changes...\n");
 
     await new Promise<void>((resolveBuild, reject) => {
-        const child = spawn(executable, ["build"], {
+        const child = spawnPnpm(["build"], {
             cwd: targetRoot,
             stdio: "inherit"
         });

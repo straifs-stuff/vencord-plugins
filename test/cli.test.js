@@ -8,6 +8,7 @@ import test from "node:test";
 import { loadCatalog, prepareCatalogSource } from "../cli/catalog.ts";
 import { buildTarget, discoverTargets, ensureTarget, resolveTarget, validateCheckout } from "../cli/checkout.ts";
 import { loadRegistry, removePlugins, syncPlugins } from "../cli/manager.ts";
+import { pnpmSpawnSpec } from "../cli/pnpm.ts";
 import { ensurePluginTools, extractWindowsArchive, handBrakeAsset, readHandBrakeResolution } from "../cli/tools.ts";
 import { locateTarget, pluginLabel } from "../cli/ui.ts";
 import pc from "picocolors";
@@ -258,6 +259,18 @@ test("local build discovery finds clients hidden by a parent gitignore", async (
             ["equicord", "1.15.0.2"],
             ["vencord", "1.15.0"]
         ]
+    );
+});
+
+test("Windows pnpm batch shims run through cmd.exe", () => {
+    assert.deepEqual(
+        pnpmSpawnSpec(["build"], "win32", {
+            ComSpec: "C:\\Windows\\System32\\cmd.exe"
+        }),
+        {
+            command: "C:\\Windows\\System32\\cmd.exe",
+            args: ["/d", "/s", "/c", "pnpm.cmd", "build"]
+        }
     );
 });
 

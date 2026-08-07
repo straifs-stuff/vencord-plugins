@@ -4,6 +4,7 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { rgPath } from "@vscode/ripgrep";
+import { spawnPnpm } from "./pnpm.js";
 // Discovery configuration
 const DISCOVERY_SKIP_NAMES = {
     ".git": true,
@@ -147,10 +148,9 @@ export async function ensureTarget(userpluginsDir) {
     return realpath(userpluginsDir);
 }
 export async function buildTarget(targetRoot, output = process.stdout) {
-    const executable = process.env.STRAIF_PNPM || (process.platform === "win32" ? "pnpm.cmd" : "pnpm");
     output.write("Applying the plugin changes...\n");
     await new Promise((resolveBuild, reject) => {
-        const child = spawn(executable, ["build"], {
+        const child = spawnPnpm(["build"], {
             cwd: targetRoot,
             stdio: "inherit"
         });

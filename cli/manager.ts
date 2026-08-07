@@ -1,9 +1,9 @@
-import { spawn } from "node:child_process";
 import { createHash, type Hash } from "node:crypto";
 import { cp, lstat, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 
 import type { Plugin } from "./catalog.ts";
+import { spawnPnpm } from "./pnpm.ts";
 
 // Registry and operation model
 
@@ -116,7 +116,6 @@ async function hashDirectory(path: string): Promise<string> {
 
 async function runPnpmInstall(directory: string): Promise<void> {
     const hasLockfile = await pathExists(join(directory, "pnpm-lock.yaml"));
-    const executable = process.env.STRAIF_PNPM || (process.platform === "win32" ? "pnpm.cmd" : "pnpm");
     const args = [
         "install",
         "--prod",
@@ -124,7 +123,7 @@ async function runPnpmInstall(directory: string): Promise<void> {
         hasLockfile ? "--frozen-lockfile" : "--no-frozen-lockfile"
     ];
     const { promise, resolve: resolveInstall, reject } = Promise.withResolvers<void>();
-    const child = spawn(executable, args, { cwd: directory, stdio: "inherit" });
+    const child = spawnPnpm(args, { cwd: directory, stdio: "inherit" });
     child.once("error", error =>
         reject(
             (error as NodeJS.ErrnoException).code === "ENOENT"

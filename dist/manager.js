@@ -2,9 +2,11 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, lstat, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
+// Registry configuration
 const REGISTRY_FILENAME = ".straif-plugins.json";
 const REGISTRY_VERSION = 2;
 const EXCLUDED_NAMES = { ".git": true, node_modules: true };
+// Filesystem, registry, and integrity helpers
 function pathExists(path) {
     return lstat(path).then(() => true, () => false);
 }
@@ -45,6 +47,7 @@ async function hashDirectory(path) {
     await addDirectoryToHash(hash, path, path);
     return `sha256:${hash.digest("hex")}`;
 }
+// Package dependency installation
 async function runPnpmInstall(directory) {
     const hasLockfile = await pathExists(join(directory, "pnpm-lock.yaml"));
     const executable = process.env.STRAIF_PNPM || (process.platform === "win32" ? "pnpm.cmd" : "pnpm");
@@ -81,6 +84,7 @@ async function acceptDependencies(plugins, yes, confirmDependencies, output) {
     }
     return { accepted, skipped };
 }
+// Transaction recovery
 async function rebuildRestoredFiles(build, output, message) {
     if (!build)
         return;
@@ -93,6 +97,7 @@ async function rebuildRestoredFiles(build, output, message) {
         output.write(`The restored files could not be applied: ${detail}\n`);
     }
 }
+// Plugin replacement transaction
 async function applyReplacements({ userpluginsDir, registry, replacements, build, output }) {
     const originalRegistry = structuredClone(registry);
     const hadRegistry = await pathExists(registryPath(userpluginsDir));
@@ -160,9 +165,10 @@ async function applyReplacements({ userpluginsDir, registry, replacements, build
         await rm(transactionDir, { recursive: true, force: true });
     }
 }
+// Installed state validation
 async function assertUnmodified(userpluginsDir, id, record, force) {
     const destination = join(userpluginsDir, record.installFolder);
-    if (!await pathExists(destination))
+    if (!(await pathExists(destination)))
         throw new Error(`The files for ${record.displayName ?? id} are missing. They may have been moved or deleted: ${destination}`);
     if (record.mode === "link") {
         const stats = await lstat(destination);
@@ -174,9 +180,10 @@ async function assertUnmodified(userpluginsDir, id, record, force) {
     if (currentHash !== record.installedHash && !force)
         throw new Error(`${record.displayName ?? id} contains changes that were not made by this installer. Back them up or restore the plugin folder, then try again.`);
 }
+// Public plugin management API
 export async function loadRegistry(userpluginsDir) {
     const path = registryPath(userpluginsDir);
-    if (!await pathExists(path))
+    if (!(await pathExists(path)))
         return { schemaVersion: REGISTRY_VERSION, plugins: {} };
     let registry;
     try {
@@ -186,7 +193,9 @@ export async function loadRegistry(userpluginsDir) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`The saved plugin information could not be read: ${message}`);
     }
-    if ((registry.schemaVersion !== 1 && registry.schemaVersion !== REGISTRY_VERSION) || !registry.plugins || typeof registry.plugins !== "object")
+    if ((registry.schemaVersion !== 1 && registry.schemaVersion !== REGISTRY_VERSION) ||
+        !registry.plugins ||
+        typeof registry.plugins !== "object")
         throw new Error("The saved plugin information was created by a newer or incompatible version of this installer.");
     let migrated = registry.schemaVersion !== REGISTRY_VERSION;
     for (const record of Object.values(registry.plugins)) {
@@ -215,12 +224,11 @@ export async function syncPlugins({ userpluginsDir, registry, plugins, link = fa
             throw new Error(`A newer commit is available for ${plugin.displayName}. Update this installer folder from main, then try again.`);
         const record = registry.plugins[plugin.id];
         if (!record) {
-            const owner = Object.entries(registry.plugins)
-                .find(([, installed]) => installed.installFolder === plugin.installFolder)?.[0];
+            const owner = Object.entries(registry.plugins).find(([, installed]) => installed.installFolder === plugin.installFolder)?.[0];
             if (owner)
                 throw new Error(`The folder ${plugin.installFolder} is already used by ${owner}.`);
             const destination = join(userpluginsDir, plugin.installFolder);
-            if (await pathExists(destination) && !force)
+            if ((await pathExists(destination)) && !force)
                 throw new Error(`A folder already exists at ${destination}. Move or remove it, then try again.`);
             changes.push({ plugin, mode: link ? "link" : "copy", action: "install" });
             continue;

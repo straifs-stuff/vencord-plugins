@@ -21,23 +21,18 @@ import {
 import pc from "picocolors";
 
 import type { Plugin } from "./catalog.ts";
-import {
-    discoverTargets,
-    validateCheckout,
-    type CheckoutTarget,
-    type DiscoveryOptions
-} from "./checkout.ts";
+import { discoverTargets, validateCheckout, type CheckoutTarget, type DiscoveryOptions } from "./checkout.ts";
 import type { PluginRecord } from "./manager.ts";
 
-export type Command = "install" | "remove";
+// Prompt contracts
 
+export type Command = "install" | "remove";
 
 export type PromptOption<Value extends string = string> = Option<Value>;
 
 export interface Output {
     write(message: string): unknown;
 }
-
 
 export interface Prompter {
     choose<Value extends string>(message: string, options: PromptOption<Value>[]): Promise<Value>;
@@ -56,6 +51,8 @@ export interface Prompter {
 }
 
 type TargetDiscovery = (options?: DiscoveryOptions) => Promise<CheckoutTarget[]>;
+
+// Checkout selection
 
 export async function locateTarget(
     prompter: Prompter,
@@ -92,11 +89,11 @@ export async function locateTarget(
             "Choose the local build folder"
         );
 
-    const selectedTarget = discovered.length > 0
-        ? await prompter.chooseTarget(discovered)
-        : null;
+    const selectedTarget = discovered.length > 0 ? await prompter.chooseTarget(discovered) : null;
     return selectedTarget ?? prompter.browseTarget(root);
 }
+
+// Browser configuration and model
 
 const BROWSE_VALUE = "\0browse";
 const theme = {
@@ -107,7 +104,6 @@ const theme = {
     muted: pc.dim,
     success: pc.green
 };
-
 
 type LabelColors = Pick<typeof pc, "blue" | "yellow" | "cyan" | "dim" | "green">;
 type PromptInput = Readable & { isTTY?: boolean };
@@ -121,12 +117,16 @@ interface BrowserEntry {
     target?: CheckoutTarget;
 }
 
+// Prompt errors
+
 export class PromptCancelledError extends Error {
     constructor() {
         super("Installer closed.");
         this.name = "PromptCancelledError";
     }
 }
+
+// Terminal directory browser
 
 class DirectoryBrowserPrompt extends Prompt<string> {
     currentDirectory: string;
@@ -135,51 +135,61 @@ class DirectoryBrowserPrompt extends Prompt<string> {
     private submitSelected = false;
 
     constructor(message: string, root: string, input: Readable, output: Writable) {
-        super({
-            input,
-            output,
-            render() {
-                const prompt = this as unknown as DirectoryBrowserPrompt;
-                const titleSymbol = prompt.state === "submit"
-                    ? theme.success("◇")
-                    : prompt.state === "cancel"
-                        ? theme.danger("■")
-                        : theme.accent("◆");
-                const header = `${theme.border("│")}\n${titleSymbol}  ${message}\n${theme.border("│")}  ${theme.muted(prompt.currentDirectory)}`;
+        super(
+            {
+                input,
+                output,
+                render() {
+                    const prompt = this as unknown as DirectoryBrowserPrompt;
+                    const titleSymbol =
+                        prompt.state === "submit"
+                            ? theme.success("◇")
+                            : prompt.state === "cancel"
+                              ? theme.danger("■")
+                              : theme.accent("◆");
+                    const header = `${theme.border("│")}\n${titleSymbol}  ${message}\n${theme.border("│")}  ${theme.muted(prompt.currentDirectory)}`;
 
-                if (prompt.state === "submit")
-                    return `${header}\n${theme.border("└")}  ${theme.success(prompt.value ?? prompt.currentDirectory)}`;
-                if (prompt.state === "cancel")
-                    return `${header}\n${theme.border("└")}  ${pc.strikethrough(theme.muted("Cancelled"))}`;
+                    if (prompt.state === "submit")
+                        return `${header}\n${theme.border("└")}  ${theme.success(prompt.value ?? prompt.currentDirectory)}`;
+                    if (prompt.state === "cancel")
+                        return `${header}\n${theme.border("└")}  ${pc.strikethrough(theme.muted("Cancelled"))}`;
 
-                const rows = "rows" in output && typeof output.rows === "number" ? output.rows : 20;
-                const maxItems = Math.max(5, Math.min(12, rows - 8));
-                const start = Math.max(0, Math.min(
-                    prompt.browserCursor - Math.floor(maxItems / 2),
-                    Math.max(0, prompt.entries.length - maxItems)
-                ));
-                const visible = prompt.entries.slice(start, start + maxItems);
-                const renderedEntries = visible.map((entry, index) => {
-                    const active = start + index === prompt.browserCursor;
-                    const pointer = active ? theme.accent("›") : " ";
-                    const directoryName = entry.kind === "current"
-                        ? "Use this folder"
-                        : entry.kind === "parent"
-                            ? "../"
-                            : `${entry.name}/`;
-                    const name = active ? theme.accent(directoryName) : directoryName;
-                    const targetHint = entry.target
-                        ? theme.info(`${entry.target.client === "equicord" ? "Equicord" : "Vencord"} local build${entry.target.version ? ` · ${entry.target.version}` : ""}`)
-                        : "";
-                    return `${theme.border("│")}  ${pointer} ${name}${targetHint ? `  ${targetHint}` : ""}`;
-                });
+                    const rows = "rows" in output && typeof output.rows === "number" ? output.rows : 20;
+                    const maxItems = Math.max(5, Math.min(12, rows - 8));
+                    const start = Math.max(
+                        0,
+                        Math.min(
+                            prompt.browserCursor - Math.floor(maxItems / 2),
+                            Math.max(0, prompt.entries.length - maxItems)
+                        )
+                    );
+                    const visible = prompt.entries.slice(start, start + maxItems);
+                    const renderedEntries = visible.map((entry, index) => {
+                        const active = start + index === prompt.browserCursor;
+                        const pointer = active ? theme.accent("›") : " ";
+                        const directoryName =
+                            entry.kind === "current"
+                                ? "Use this folder"
+                                : entry.kind === "parent"
+                                  ? "../"
+                                  : `${entry.name}/`;
+                        const name = active ? theme.accent(directoryName) : directoryName;
+                        const targetHint = entry.target
+                            ? theme.info(
+                                  `${entry.target.client === "equicord" ? "Equicord" : "Vencord"} local build${entry.target.version ? ` · ${entry.target.version}` : ""}`
+                              )
+                            : "";
+                        return `${theme.border("│")}  ${pointer} ${name}${targetHint ? `  ${targetHint}` : ""}`;
+                    });
 
-                if (renderedEntries.length === 0)
-                    renderedEntries.push(`${theme.border("│")}    ${theme.muted("No folders can be opened here")}`);
+                    if (renderedEntries.length === 0)
+                        renderedEntries.push(`${theme.border("│")}    ${theme.muted("No folders can be opened here")}`);
 
-                return `${header}\n${renderedEntries.join("\n")}\n${theme.border("└")}  ${theme.muted("↑↓ move · → open · ← back · enter choose/open · esc cancel")}`;
-            }
-        }, false);
+                    return `${header}\n${renderedEntries.join("\n")}\n${theme.border("└")}  ${theme.muted("↑↓ move · → open · ← back · enter choose/open · esc cancel")}`;
+                }
+            },
+            false
+        );
 
         this.currentDirectory = realpathSync(root);
         this.reload();
@@ -203,11 +213,15 @@ class DirectoryBrowserPrompt extends Prompt<string> {
         const entries: BrowserEntry[] = [];
         const currentTarget = validateCheckout(this.currentDirectory).target;
         if (currentTarget)
-            entries.push({ kind: "current", name: "Use this folder", path: this.currentDirectory, target: currentTarget });
+            entries.push({
+                kind: "current",
+                name: "Use this folder",
+                path: this.currentDirectory,
+                target: currentTarget
+            });
 
         const parent = dirname(this.currentDirectory);
-        if (parent !== this.currentDirectory)
-            entries.push({ kind: "parent", name: "..", path: parent });
+        if (parent !== this.currentDirectory) entries.push({ kind: "parent", name: "..", path: parent });
 
         try {
             const directories = readdirSync(this.currentDirectory, { withFileTypes: true })
@@ -232,7 +246,8 @@ class DirectoryBrowserPrompt extends Prompt<string> {
                 .sort((left, right) => {
                     if (left.target && !right.target) return -1;
                     if (!left.target && right.target) return 1;
-                    if (left.name.startsWith(".") !== right.name.startsWith(".")) return left.name.startsWith(".") ? 1 : -1;
+                    if (left.name.startsWith(".") !== right.name.startsWith("."))
+                        return left.name.startsWith(".") ? 1 : -1;
                     return left.name.localeCompare(right.name);
                 });
             entries.push(...directories);
@@ -267,6 +282,7 @@ class DirectoryBrowserPrompt extends Prompt<string> {
     }
 }
 
+// Plugin labels and prompt helpers
 
 export function pluginLabel(plugin: Plugin, record?: PluginRecord, colors: LabelColors = pc): string {
     const name = plugin.displayName;
@@ -295,6 +311,8 @@ function unwrap<Value>(value: Value | symbol | undefined, promptOptions: { input
     throw new PromptCancelledError();
 }
 
+// Public prompter implementation
+
 export function createPrompter(input: PromptInput = process.stdin, output: PromptOutput = process.stdout): Prompter {
     if (!input.isTTY || !output.isTTY)
         throw new Error("This installer needs an interactive terminal. Run it directly in a terminal window.");
@@ -309,51 +327,55 @@ export function createPrompter(input: PromptInput = process.stdin, output: Promp
         },
 
         async chooseTarget(targets: CheckoutTarget[]): Promise<string | null> {
-            const value = unwrap(await autocomplete({
-                message: "Choose your Equicord or Vencord folder",
-                options: [
-                    ...targets.map(target => ({
-                        value: target.root,
-                        label: `${target.client === "equicord" ? "Equicord" : "Vencord"}${target.version ? ` · ${target.version}` : ""}`,
-                        hint: target.root
-                    })),
-                    {
-                        value: BROWSE_VALUE,
-                        label: "Choose a different folder",
-                        hint: "Open the folder picker"
-                    }
-                ],
-                ...promptOptions
-            }), promptOptions);
+            const value = unwrap(
+                await autocomplete({
+                    message: "Choose your Equicord or Vencord folder",
+                    options: [
+                        ...targets.map(target => ({
+                            value: target.root,
+                            label: `${target.client === "equicord" ? "Equicord" : "Vencord"}${target.version ? ` · ${target.version}` : ""}`,
+                            hint: target.root
+                        })),
+                        {
+                            value: BROWSE_VALUE,
+                            label: "Choose a different folder",
+                            hint: "Open the folder picker"
+                        }
+                    ],
+                    ...promptOptions
+                }),
+                promptOptions
+            );
             return value === BROWSE_VALUE ? null : value;
         },
 
         async browseTarget(root: string): Promise<string> {
-            const prompt = new DirectoryBrowserPrompt(
-                "Choose your Equicord or Vencord folder",
-                root,
-                input,
-                output
-            );
+            const prompt = new DirectoryBrowserPrompt("Choose your Equicord or Vencord folder", root, input, output);
             return unwrap(await prompt.prompt(), promptOptions);
         },
 
         async selectMany<Value extends string>(message: string, options: PromptOption<Value>[]): Promise<Value[]> {
             if (options.length === 0) return [];
-            return unwrap(await multiselect({
-                message,
-                options,
-                required: false,
-                ...promptOptions
-            }), promptOptions);
+            return unwrap(
+                await multiselect({
+                    message,
+                    options,
+                    required: false,
+                    ...promptOptions
+                }),
+                promptOptions
+            );
         },
 
         async confirm(message: string, defaultValue = false): Promise<boolean> {
-            return unwrap(await confirm({
-                message,
-                initialValue: defaultValue,
-                ...promptOptions
-            }), promptOptions);
+            return unwrap(
+                await confirm({
+                    message,
+                    initialValue: defaultValue,
+                    ...promptOptions
+                }),
+                promptOptions
+            );
         },
 
         info(message: string): void {

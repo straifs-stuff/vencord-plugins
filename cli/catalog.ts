@@ -3,19 +3,29 @@ import { access, readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Catalog model
+
 export interface Plugin {
     id: string;
     sourceDir: string;
     displayName: string;
     installFolder: string;
     dependencies: string[];
+    tools: string[];
     sourceCommit?: string;
     latestCommit?: string;
 }
+
 interface PluginPackage {
     dependencies?: unknown;
+    straifPlugin?: unknown;
 }
 
+interface PluginMetadata {
+    tools?: unknown;
+}
+
+// Catalog configuration
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const SOURCE_ROOT = resolve(process.env.STRAIF_PLUGINS_SOURCE || PACKAGE_ROOT);
@@ -31,6 +41,8 @@ const INSTALL_FOLDER_PATTERN = /^[a-z][A-Za-z0-9]*(?:\.(?:desktop|web|dev|discor
 const PLUGIN_NAME_PATTERN = /export\s+default\s+definePlugin\s*\(\s*\{[\s\S]*?\bname\s*:\s*(["'`])([^"'`\r\n]+)\1/;
 const REPOSITORY_URL = "https://github.com/straifs-stuff/plugins.git";
 
+// Catalog parsing
+
 function gitOutput(args: string[], cwd: string): Promise<string | undefined> {
     const { promise, resolve: resolveResult } = Promise.withResolvers<string | undefined>();
     execFile("git", args, { cwd, encoding: "utf8", timeout: 5_000 }, (error, stdout) => {
@@ -39,43 +51,70 @@ function gitOutput(args: string[], cwd: string): Promise<string | undefined> {
     return promise;
 }
 
-
 async function findEntry(sourceDir: string): Promise<string | null> {
     for (const entry of ENTRY_FILES) {
-        if (await access(join(sourceDir, entry)).then(() => true, () => false)) return entry;
+        if (
+            await access(join(sourceDir, entry)).then(
+                () => true,
+                () => false
+            )
+        )
+            return entry;
     }
     return null;
 }
 
 function readPluginName(id: string, source: string): string {
     const name = PLUGIN_NAME_PATTERN.exec(source)?.[2];
-    if (!name)
-        throw new Error(`${id} must export definePlugin with a plain text name in index.ts or index.tsx.`);
+    if (!name) throw new Error(`${id} must export definePlugin with a plain text name in index.ts or index.tsx.`);
     return name;
 }
+function readPluginTools(id: string, value: unknown): string[] {
+    if (value === undefined) return [];
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+        throw new Error(`${id}/package.json straifPlugin must be an object.`);
 
+    const tools = (value as PluginMetadata).tools;
+    if (tools === undefined) return [];
+    if (!Array.isArray(tools) || tools.some(tool => typeof tool !== "string" || tool.length === 0))
+        throw new Error(`${id}/package.json straifPlugin.tools must be an array of tool names.`);
+    return [...new Set(tools)].sort();
+}
+
+// Public API
 
 export async function loadCatalog(sourceRoot = SOURCE_ROOT): Promise<Plugin[]> {
     const entries = await readdir(sourceRoot, { withFileTypes: true });
     const plugins: Plugin[] = [];
     const localCommit = await gitOutput(["rev-parse", "HEAD"], sourceRoot);
     const originMain = await gitOutput(["ls-remote", "origin", "refs/heads/main"], sourceRoot);
-    const officialMain = originMain || resolve(sourceRoot) !== PACKAGE_ROOT
-        ? undefined
-        : await gitOutput(["ls-remote", REPOSITORY_URL, "refs/heads/main"], sourceRoot);
+    const officialMain =
+        originMain || resolve(sourceRoot) !== PACKAGE_ROOT
+            ? undefined
+            : await gitOutput(["ls-remote", REPOSITORY_URL, "refs/heads/main"], sourceRoot);
     const latestCommit = (originMain ?? officialMain)?.split(/\s+/)[0] ?? localCommit;
     const sourceCommit = localCommit ?? latestCommit;
 
-
     for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name.startsWith("_") || RESERVED_DIRECTORIES[entry.name])
+        if (
+            !entry.isDirectory() ||
+            entry.name.startsWith(".") ||
+            entry.name.startsWith("_") ||
+            RESERVED_DIRECTORIES[entry.name]
+        )
             continue;
         if (!INSTALL_FOLDER_PATTERN.test(entry.name))
             throw new Error(`${entry.name} is not a valid Vencord or Equicord plugin folder name.`);
 
         const sourceDir = join(sourceRoot, entry.name);
         const packagePath = join(sourceDir, "package.json");
-        if (!await access(packagePath).then(() => true, () => false)) continue;
+        if (
+            !(await access(packagePath).then(
+                () => true,
+                () => false
+            ))
+        )
+            continue;
 
         let packageJson: PluginPackage;
         try {
@@ -86,12 +125,15 @@ export async function loadCatalog(sourceRoot = SOURCE_ROOT): Promise<Plugin[]> {
         }
 
         const entryFile = await findEntry(sourceDir);
-        if (!entryFile)
-            throw new Error(`${entry.name} must contain index.ts or index.tsx.`);
+        if (!entryFile) throw new Error(`${entry.name} must contain index.ts or index.tsx.`);
         const source = await readFile(join(sourceDir, entryFile), "utf8");
-        const dependencies = typeof packageJson.dependencies === "object" && packageJson.dependencies !== null && !Array.isArray(packageJson.dependencies)
-            ? Object.keys(packageJson.dependencies).sort()
-            : [];
+        const dependencies =
+            typeof packageJson.dependencies === "object" &&
+            packageJson.dependencies !== null &&
+            !Array.isArray(packageJson.dependencies)
+                ? Object.keys(packageJson.dependencies).sort()
+                : [];
+        const tools = readPluginTools(entry.name, packageJson.straifPlugin);
 
         plugins.push({
             id: entry.name,
@@ -99,6 +141,7 @@ export async function loadCatalog(sourceRoot = SOURCE_ROOT): Promise<Plugin[]> {
             displayName: readPluginName(entry.name, source),
             installFolder: entry.name,
             dependencies,
+            tools,
             sourceCommit,
             latestCommit
         });

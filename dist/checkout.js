@@ -4,12 +4,13 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { rgPath } from "@vscode/ripgrep";
+// Discovery configuration
 const DISCOVERY_SKIP_NAMES = {
     ".git": true,
     ".cache": true,
     ".pnpm": true,
     ".venv": true,
-    "__pycache__": true,
+    __pycache__: true,
     dist: true,
     node_modules: true,
     out: true,
@@ -25,6 +26,7 @@ const DISCOVERY_SKIP_PREFIXES = [
     "Library/Containers",
     "Library/Group Containers"
 ];
+// Path expansion and validation
 function expandHome(path) {
     if (path === "~")
         return homedir();
@@ -47,13 +49,19 @@ export function validateCheckout(path) {
         return { error: `That isn't the folder where Equicord or Vencord was downloaded and built: ${root}` };
     try {
         if (!statSync(join(root, "src")).isDirectory())
-            return { error: `That folder is missing src. Make sure you chose the main Equicord or Vencord folder: ${root}` };
+            return {
+                error: `That folder is missing src. Make sure you chose the main Equicord or Vencord folder: ${root}`
+            };
     }
     catch {
-        return { error: `That folder is missing src. Make sure you chose the main Equicord or Vencord folder: ${root}` };
+        return {
+            error: `That folder is missing src. Make sure you chose the main Equicord or Vencord folder: ${root}`
+        };
     }
     if (typeof manifest.scripts?.build !== "string" || typeof manifest.scripts.inject !== "string")
-        return { error: `That doesn't look like a complete local Equicord or Vencord build. Make sure you selected its main folder: ${root}` };
+        return {
+            error: `That doesn't look like a complete local Equicord or Vencord build. Make sure you selected its main folder: ${root}`
+        };
     return {
         target: {
             client: manifest.name,
@@ -62,6 +70,7 @@ export function validateCheckout(path) {
         }
     };
 }
+// Automatic checkout discovery
 async function discoverWithRipgrep(searchRoot, timeoutMs, maxDepth) {
     const args = [
         "--no-config",
@@ -119,6 +128,7 @@ async function discoverWithRipgrep(searchRoot, timeoutMs, maxDepth) {
     }
     return timedOut ? [] : [...targets.values()];
 }
+// Public checkout operations
 export async function discoverTargets({ root = homedir(), timeoutMs = 10_000, maxDepth = Number.POSITIVE_INFINITY } = {}) {
     const searchRoot = resolve(root);
     const targets = await discoverWithRipgrep(searchRoot, timeoutMs, maxDepth);

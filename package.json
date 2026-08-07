@@ -21,7 +21,9 @@
   ],
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
-    "test": "pnpm typecheck && node --test test/cli.test.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm format:check && pnpm typecheck && node --test test/cli.test.js",
     "typecheck": "tsc --noEmit"
   },
   "packageManager": "pnpm@11.3.0",
@@ -32,10 +34,13 @@
     "@clack/core": "^1.4.3",
     "@clack/prompts": "^1.7.0",
     "@vscode/ripgrep": "^1.18.0",
-    "picocolors": "^1.1.1"
+    "picocolors": "^1.1.1",
+    "yauzl": "3.4.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
+    "@types/yauzl": "3.4.0",
+    "prettier": "3.9.6",
     "typescript": "^7.0.2"
   }
 }

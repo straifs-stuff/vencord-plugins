@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { rgPath } from "@vscode/ripgrep";
 
+// Checkout model
 
 interface Output {
     write(message: string): unknown;
@@ -37,12 +38,15 @@ interface CheckoutValidation {
     target?: CheckoutTarget;
     error?: string;
 }
+
+// Discovery configuration
+
 const DISCOVERY_SKIP_NAMES: Record<string, true> = {
     ".git": true,
     ".cache": true,
     ".pnpm": true,
     ".venv": true,
-    "__pycache__": true,
+    __pycache__: true,
     dist: true,
     node_modules: true,
     out: true,
@@ -60,6 +64,7 @@ const DISCOVERY_SKIP_PREFIXES = [
     "Library/Group Containers"
 ];
 
+// Path expansion and validation
 
 function expandHome(path: string): string {
     if (path === "~") return homedir();
@@ -84,13 +89,19 @@ export function validateCheckout(path: string): CheckoutValidation {
 
     try {
         if (!statSync(join(root, "src")).isDirectory())
-            return { error: `That folder is missing src. Make sure you chose the main Equicord or Vencord folder: ${root}` };
+            return {
+                error: `That folder is missing src. Make sure you chose the main Equicord or Vencord folder: ${root}`
+            };
     } catch {
-        return { error: `That folder is missing src. Make sure you chose the main Equicord or Vencord folder: ${root}` };
+        return {
+            error: `That folder is missing src. Make sure you chose the main Equicord or Vencord folder: ${root}`
+        };
     }
 
     if (typeof manifest.scripts?.build !== "string" || typeof manifest.scripts.inject !== "string")
-        return { error: `That doesn't look like a complete local Equicord or Vencord build. Make sure you selected its main folder: ${root}` };
+        return {
+            error: `That doesn't look like a complete local Equicord or Vencord build. Make sure you selected its main folder: ${root}`
+        };
 
     return {
         target: {
@@ -100,6 +111,8 @@ export function validateCheckout(path: string): CheckoutValidation {
         }
     };
 }
+
+// Automatic checkout discovery
 
 async function discoverWithRipgrep(searchRoot: string, timeoutMs: number, maxDepth: number): Promise<CheckoutTarget[]> {
     const args = [
@@ -112,12 +125,9 @@ async function discoverWithRipgrep(searchRoot: string, timeoutMs: number, maxDep
         "--glob",
         "package.json"
     ];
-    for (const name of Object.keys(DISCOVERY_SKIP_NAMES))
-        args.push("--glob", `!**/${name}/**`);
-    for (const prefix of DISCOVERY_SKIP_PREFIXES)
-        args.push("--glob", `!${prefix}/**`);
-    if (Number.isFinite(maxDepth))
-        args.push("--max-depth", String(Math.max(0, Math.ceil(maxDepth)) + 1));
+    for (const name of Object.keys(DISCOVERY_SKIP_NAMES)) args.push("--glob", `!**/${name}/**`);
+    for (const prefix of DISCOVERY_SKIP_PREFIXES) args.push("--glob", `!${prefix}/**`);
+    if (Number.isFinite(maxDepth)) args.push("--max-depth", String(Math.max(0, Math.ceil(maxDepth)) + 1));
 
     const targets = new Map<string, CheckoutTarget>();
     let timedOut = false;
@@ -141,10 +151,13 @@ async function discoverWithRipgrep(searchRoot: string, timeoutMs: number, maxDep
             });
 
             const timer = Number.isFinite(timeoutMs)
-                ? setTimeout(() => {
-                    timedOut = true;
-                    child.kill();
-                }, Math.max(0, timeoutMs))
+                ? setTimeout(
+                      () => {
+                          timedOut = true;
+                          child.kill();
+                      },
+                      Math.max(0, timeoutMs)
+                  )
                 : undefined;
             child.once("error", error => {
                 clearTimeout(timer);
@@ -162,6 +175,8 @@ async function discoverWithRipgrep(searchRoot: string, timeoutMs: number, maxDep
     return timedOut ? [] : [...targets.values()];
 }
 
+// Public checkout operations
+
 export async function discoverTargets({
     root = homedir(),
     timeoutMs = 10_000,
@@ -169,15 +184,16 @@ export async function discoverTargets({
 }: DiscoveryOptions = {}): Promise<CheckoutTarget[]> {
     const searchRoot = resolve(root);
     const targets = await discoverWithRipgrep(searchRoot, timeoutMs, maxDepth);
-    return targets.sort((left, right) =>
-        left.client.localeCompare(right.client) || left.root.localeCompare(right.root)
+    return targets.sort(
+        (left, right) => left.client.localeCompare(right.client) || left.root.localeCompare(right.root)
     );
 }
 
 export async function resolveTarget(target: string): Promise<string> {
     if (!target) throw new Error("Choose the folder where Equicord or Vencord was downloaded and built.");
     const validation = validateCheckout(target);
-    if (!validation.target) throw new Error(validation.error ?? "That isn't a valid local Equicord or Vencord build folder.");
+    if (!validation.target)
+        throw new Error(validation.error ?? "That isn't a valid local Equicord or Vencord build folder.");
     return join(validation.target.root, "src", "userplugins");
 }
 
@@ -195,12 +211,22 @@ export async function buildTarget(targetRoot: string, output: Output = process.s
             cwd: targetRoot,
             stdio: "inherit"
         });
-        child.once("error", error => reject((error as NodeJS.ErrnoException).code === "ENOENT"
-            ? new Error("pnpm was not found. Finish setting up Equicord or Vencord, then try again.")
-            : error));
-        child.once("close", code => code === 0
-            ? resolveBuild()
-            : reject(new Error(`Equicord or Vencord could not apply the changes. The build tool stopped with code ${code}.`)));
+        child.once("error", error =>
+            reject(
+                (error as NodeJS.ErrnoException).code === "ENOENT"
+                    ? new Error("pnpm was not found. Finish setting up Equicord or Vencord, then try again.")
+                    : error
+            )
+        );
+        child.once("close", code =>
+            code === 0
+                ? resolveBuild()
+                : reject(
+                      new Error(
+                          `Equicord or Vencord could not apply the changes. The build tool stopped with code ${code}.`
+                      )
+                  )
+        );
     });
 
     output.write("Plugin changes applied.\n");

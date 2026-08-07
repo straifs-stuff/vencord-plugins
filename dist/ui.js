@@ -5,6 +5,7 @@ import { Prompt } from "@clack/core";
 import { autocomplete, cancel, confirm, intro, isCancel, log, multiselect, note as clackNote, outro, select } from "@clack/prompts";
 import pc from "picocolors";
 import { discoverTargets, validateCheckout } from "./checkout.js";
+// Checkout selection
 export async function locateTarget(prompter, root = homedir(), discover = discoverTargets) {
     const method = await prompter.choose("How would you like to find your Equicord or Vencord folder?", [
         {
@@ -29,11 +30,10 @@ export async function locateTarget(prompter, root = homedir(), discover = discov
         prompter.success(foundMessage);
     if (discovered.length === 0)
         prompter.note("Choose the main folder where you downloaded and built Equicord or Vencord. It should contain a src folder and a package.json file.", "Choose the local build folder");
-    const selectedTarget = discovered.length > 0
-        ? await prompter.chooseTarget(discovered)
-        : null;
+    const selectedTarget = discovered.length > 0 ? await prompter.chooseTarget(discovered) : null;
     return selectedTarget ?? prompter.browseTarget(root);
 }
+// Browser configuration and model
 const BROWSE_VALUE = "\0browse";
 const theme = {
     accent: pc.cyan,
@@ -43,12 +43,14 @@ const theme = {
     muted: pc.dim,
     success: pc.green
 };
+// Prompt errors
 export class PromptCancelledError extends Error {
     constructor() {
         super("Installer closed.");
         this.name = "PromptCancelledError";
     }
 }
+// Terminal directory browser
 class DirectoryBrowserPrompt extends Prompt {
     currentDirectory;
     entries = [];
@@ -119,7 +121,12 @@ class DirectoryBrowserPrompt extends Prompt {
         const entries = [];
         const currentTarget = validateCheckout(this.currentDirectory).target;
         if (currentTarget)
-            entries.push({ kind: "current", name: "Use this folder", path: this.currentDirectory, target: currentTarget });
+            entries.push({
+                kind: "current",
+                name: "Use this folder",
+                path: this.currentDirectory,
+                target: currentTarget
+            });
         const parent = dirname(this.currentDirectory);
         if (parent !== this.currentDirectory)
             entries.push({ kind: "parent", name: "..", path: parent });
@@ -187,6 +194,7 @@ class DirectoryBrowserPrompt extends Prompt {
         }
     }
 }
+// Plugin labels and prompt helpers
 export function pluginLabel(plugin, record, colors = pc) {
     const name = plugin.displayName;
     if (!record)
@@ -213,6 +221,7 @@ function unwrap(value, promptOptions) {
     cancel("Closed — no files were changed.", promptOptions);
     throw new PromptCancelledError();
 }
+// Public prompter implementation
 export function createPrompter(input = process.stdin, output = process.stdout) {
     if (!input.isTTY || !output.isTTY)
         throw new Error("This installer needs an interactive terminal. Run it directly in a terminal window.");

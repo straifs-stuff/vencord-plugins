@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 import { loadCatalog } from "./catalog.js";
 import { buildTarget, ensureTarget, resolveTarget } from "./checkout.js";
 import { loadRegistry, removePlugins, syncPlugins } from "./manager.js";
+import { ensurePluginTools } from "./tools.js";
 import { createPrompter, locateTarget, pluginLabel, PromptCancelledError } from "./ui.js";
+// Plugin selection
 async function selectPlugins(command, catalog, registry, prompter) {
     if (command === "remove") {
         const ids = Object.keys(registry.plugins);
@@ -15,7 +17,9 @@ async function selectPlugins(command, catalog, registry, prompter) {
                 label: record.displayName ?? id,
                 hint: record.mode === "link"
                     ? "Linked development copy"
-                    : commit ? `Installed · ${commit}` : "Installed"
+                    : commit
+                        ? `Installed · ${commit}`
+                        : "Installed"
             };
         }));
     }
@@ -26,6 +30,7 @@ async function selectPlugins(command, catalog, registry, prompter) {
     const selected = new Set(values);
     return catalog.filter(plugin => selected.has(plugin.id));
 }
+// Main installer workflow
 async function main() {
     const prompter = createPrompter();
     try {
@@ -57,10 +62,19 @@ async function main() {
         const operationOutput = prompter.writer();
         const build = () => buildTarget(targetRoot, operationOutput);
         if (command === "install") {
+            const toolResult = await ensurePluginTools({
+                plugins: selected,
+                confirmInstall: message => prompter.confirm(message),
+                output: operationOutput
+            });
+            if (toolResult.ready.length === 0) {
+                prompter.finish("No plugins were installed because their required native tools are unavailable.");
+                return;
+            }
             const result = await syncPlugins({
                 userpluginsDir,
                 registry,
-                plugins: selected,
+                plugins: toolResult.ready,
                 confirmDependencies: plugin => prompter.confirm(`${plugin.displayName} also needs these packages: ${plugin.dependencies.join(", ")}. Install them now?`),
                 build,
                 output: operationOutput
@@ -87,6 +101,7 @@ async function main() {
         prompter.close();
     }
 }
+// Process boundary
 main().catch((error) => {
     if (error instanceof PromptCancelledError)
         return;

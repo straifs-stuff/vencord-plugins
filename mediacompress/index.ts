@@ -9,9 +9,11 @@ import definePlugin from "@utils/types";
 export default definePlugin({
     name: "MediaCompress",
     description: "Compresses media before it is uploaded to Discord.",
-    authors: [{
-        name: "StraiF",
-        id: 314034398280286208n
-    }],
+    authors: [
+        {
+            name: "StraiF",
+            id: 314034398280286208n
+        }
+    ],
     tags: ["Media", "Utility"]
 });

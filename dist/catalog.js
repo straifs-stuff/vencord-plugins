@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { access, readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+// Catalog configuration
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const SOURCE_ROOT = resolve(process.env.STRAIF_PLUGINS_SOURCE || PACKAGE_ROOT);
 const RESERVED_DIRECTORIES = {
@@ -14,6 +15,7 @@ const ENTRY_FILES = ["index.ts", "index.tsx", "index.js", "index.jsx"];
 const INSTALL_FOLDER_PATTERN = /^[a-z][A-Za-z0-9]*(?:\.(?:desktop|web|dev|discordDesktop|vesktop|equibop))?$/;
 const PLUGIN_NAME_PATTERN = /export\s+default\s+definePlugin\s*\(\s*\{[\s\S]*?\bname\s*:\s*(["'`])([^"'`\r\n]+)\1/;
 const REPOSITORY_URL = "https://github.com/straifs-stuff/plugins.git";
+// Catalog parsing
 function gitOutput(args, cwd) {
     const { promise, resolve: resolveResult } = Promise.withResolvers();
     execFile("git", args, { cwd, encoding: "utf8", timeout: 5_000 }, (error, stdout) => {
@@ -34,6 +36,19 @@ function readPluginName(id, source) {
         throw new Error(`${id} must export definePlugin with a plain text name in index.ts or index.tsx.`);
     return name;
 }
+function readPluginTools(id, value) {
+    if (value === undefined)
+        return [];
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+        throw new Error(`${id}/package.json straifPlugin must be an object.`);
+    const tools = value.tools;
+    if (tools === undefined)
+        return [];
+    if (!Array.isArray(tools) || tools.some(tool => typeof tool !== "string" || tool.length === 0))
+        throw new Error(`${id}/package.json straifPlugin.tools must be an array of tool names.`);
+    return [...new Set(tools)].sort();
+}
+// Public API
 export async function loadCatalog(sourceRoot = SOURCE_ROOT) {
     const entries = await readdir(sourceRoot, { withFileTypes: true });
     const plugins = [];
@@ -45,13 +60,16 @@ export async function loadCatalog(sourceRoot = SOURCE_ROOT) {
     const latestCommit = (originMain ?? officialMain)?.split(/\s+/)[0] ?? localCommit;
     const sourceCommit = localCommit ?? latestCommit;
     for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name.startsWith("_") || RESERVED_DIRECTORIES[entry.name])
+        if (!entry.isDirectory() ||
+            entry.name.startsWith(".") ||
+            entry.name.startsWith("_") ||
+            RESERVED_DIRECTORIES[entry.name])
             continue;
         if (!INSTALL_FOLDER_PATTERN.test(entry.name))
             throw new Error(`${entry.name} is not a valid Vencord or Equicord plugin folder name.`);
         const sourceDir = join(sourceRoot, entry.name);
         const packagePath = join(sourceDir, "package.json");
-        if (!await access(packagePath).then(() => true, () => false))
+        if (!(await access(packagePath).then(() => true, () => false)))
             continue;
         let packageJson;
         try {
@@ -65,15 +83,19 @@ export async function loadCatalog(sourceRoot = SOURCE_ROOT) {
         if (!entryFile)
             throw new Error(`${entry.name} must contain index.ts or index.tsx.`);
         const source = await readFile(join(sourceDir, entryFile), "utf8");
-        const dependencies = typeof packageJson.dependencies === "object" && packageJson.dependencies !== null && !Array.isArray(packageJson.dependencies)
+        const dependencies = typeof packageJson.dependencies === "object" &&
+            packageJson.dependencies !== null &&
+            !Array.isArray(packageJson.dependencies)
             ? Object.keys(packageJson.dependencies).sort()
             : [];
+        const tools = readPluginTools(entry.name, packageJson.straifPlugin);
         plugins.push({
             id: entry.name,
             sourceDir,
             displayName: readPluginName(entry.name, source),
             installFolder: entry.name,
             dependencies,
+            tools,
             sourceCommit,
             latestCommit
         });

@@ -4,17 +4,181 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { definePluginSettings } from "@api/Settings";
+import { Card } from "@components/Card";
+import { Flex } from "@components/Flex";
 import ErrorBoundary from "@components/ErrorBoundary";
-import definePlugin from "@utils/types";
+import { SettingsSection } from "@components/settings/tabs/plugins/components/Common";
+import { Paragraph } from "@components/Paragraph";
+import { useAwaiter } from "@utils/react";
+import type { PluginNative, PluginSettingComponentProps } from "@utils/types";
+import definePlugin, { OptionType } from "@utils/types";
 import { findByCodeLazy } from "@webpack";
 
-import { useEffect, useState } from "@webpack/common";
+import { Select, useEffect, useState } from "@webpack/common";
+
+import type { HandBrakeEncodersResult } from "./native";
+import type * as MediaCompressNative from "./native";
 
 import "./style.css";
 const ActionBarIcon = findByCodeLazy("Children.map", "isValidElement", "dangerous:");
+const Native = VencordNative.pluginHelpers.MediaCompress as
+    Partial<PluginNative<typeof MediaCompressNative>> | undefined;
 
 const MOCK_PROGRESS_INCREMENT = 5;
 const MOCK_PROGRESS_INTERVAL_MS = 125;
+const DEFAULT_VIDEO_ENCODER = "x264";
+const VIDEO_ENCODER_SETTING_KEYS = ["videoEncoder"] satisfies "videoEncoder"[];
+const ENCODER_LABELS: Record<string, string> = {
+    svt_av1: "AV1 (SVT)",
+    svt_av1_10bit: "AV1 10-bit (SVT)",
+    qsv_av1: "AV1 (Intel QSV)",
+    qsv_av1_10bit: "AV1 10-bit (Intel QSV)",
+    nvenc_av1: "AV1 (NVEnc)",
+    nvenc_av1_10bit: "AV1 10-bit (NVEnc)",
+    vce_av1: "AV1 (AMD VCE)",
+    vce_av1_10bit: "AV1 10-bit (AMD VCE)",
+    mf_av1: "AV1 (MediaFoundation)",
+    ffv1: "FFV1",
+    x264: "H.264 (x264)",
+    x264_10bit: "H.264 10-bit (x264)",
+    qsv_h264: "H.264 (Intel QSV)",
+    vce_h264: "H.264 (AMD VCE)",
+    nvenc_h264: "H.264 (NVEnc)",
+    mf_h264: "H.264 (MediaFoundation)",
+    vt_h264: "H.264 (VideoToolbox)",
+    x265: "H.265 (x265)",
+    x265_10bit: "H.265 10-bit (x265)",
+    x265_12bit: "H.265 12-bit (x265)",
+    x265_16bit: "H.265 16-bit (x265)",
+    qsv_h265: "H.265 (Intel QSV)",
+    qsv_h265_10bit: "H.265 10-bit (Intel QSV)",
+    vce_h265: "H.265 (AMD VCE)",
+    vce_h265_10bit: "H.265 10-bit (AMD VCE)",
+    nvenc_h265: "H.265 (NVEnc)",
+    nvenc_h265_10bit: "H.265 10-bit (NVEnc)",
+    mf_h265: "H.265 (MediaFoundation)",
+    vt_h265: "H.265 (VideoToolbox)",
+    vt_h265_10bit: "H.265 10-bit (VideoToolbox)",
+    mpeg4: "MPEG-4",
+    mpeg2: "MPEG-2",
+    VP8: "VP8",
+    VP9: "VP9",
+    VP9_10bit: "VP9 10-bit",
+    dnxhr: "DNxHR",
+    dnxhr_10bit: "DNxHR 10-bit",
+    ff_prores: "ProRes",
+    vt_prores: "ProRes (VideoToolbox)",
+    theora: "Theora"
+};
+interface EncoderDiscoveryResult extends HandBrakeEncodersResult {
+    restartRequired?: boolean;
+}
+
+const EMPTY_ENCODER_RESULT: EncoderDiscoveryResult = { available: false, encoders: [] };
+
+async function discoverAvailableEncoders(): Promise<EncoderDiscoveryResult> {
+    const getHandBrakeEncoders = Native?.getHandBrakeEncoders;
+    if (typeof getHandBrakeEncoders !== "function") return { available: false, encoders: [], restartRequired: true };
+
+    try {
+        return await getHandBrakeEncoders();
+    } catch {
+        return { available: false, encoders: [], restartRequired: true };
+    }
+}
+
+function VideoEncoderSetting({ setValue }: PluginSettingComponentProps) {
+    const { videoEncoder } = settings.use(VIDEO_ENCODER_SETTING_KEYS);
+    const [selectedEncoder, setSelectedEncoder] = useState(videoEncoder);
+    const [result, , isPending] = useAwaiter(discoverAvailableEncoders, {
+        fallbackValue: EMPTY_ENCODER_RESULT
+    });
+    const options = result.encoders.map(value => ({
+        label: ENCODER_LABELS[value] ?? value,
+        value
+    }));
+    const fallbackEncoder = result.encoders.includes(videoEncoder)
+        ? undefined
+        : result.encoders.includes(DEFAULT_VIDEO_ENCODER)
+          ? DEFAULT_VIDEO_ENCODER
+          : result.encoders[0];
+
+    useEffect(() => {
+        setSelectedEncoder(videoEncoder);
+    }, [videoEncoder]);
+
+    useEffect(() => {
+        if (!isPending && fallbackEncoder) {
+            setSelectedEncoder(fallbackEncoder);
+            setValue(fallbackEncoder);
+        }
+    }, [fallbackEncoder, isPending, setValue]);
+
+    function handleChange(newValue: string) {
+        setSelectedEncoder(newValue);
+        setValue(newValue);
+    }
+
+    const status = isPending
+        ? "Checking which encoders are available..."
+        : result.restartRequired
+          ? "Restart Discord to load the updated MediaCompress native helper."
+          : !result.available
+            ? "HandBrakeCLI is unavailable."
+            : options.length === 0
+              ? "HandBrakeCLI did not report any usable video encoders."
+              : "Only encoders reported by this HandBrakeCLI installation are shown.";
+
+    return (
+        <SettingsSection name="Video Encoder" id="videoEncoder" description={status}>
+            <Select
+                placeholder="Select a video encoder"
+                maxVisibleItems={8}
+                options={options}
+                select={handleChange}
+                isSelected={value => value === selectedEncoder}
+                serialize={String}
+                isDisabled={isPending || options.length === 0}
+                closeOnSelect
+            />
+            <Card variant="primary">
+                <Flex flexDirection="column" gap="4px">
+                    <Paragraph size="md" weight="semibold">
+                        Which encoder to pick?
+                    </Paragraph>
+                    <Paragraph>
+                        <strong>Modern GPUs with AV1:</strong> use <code>AV1 (NVEnc)</code> on NVIDIA RTX 40-series or
+                        newer, <code>AV1 (Intel QSV)</code> on Intel Arc or Core Ultra, and <code>AV1 (AMD VCE)</code>{" "}
+                        on AMD RX 7000-series or newer.
+                    </Paragraph>
+                    <Paragraph>
+                        <strong>Older GPUs:</strong> use the matching H.265 hardware encoder. Choose H.264 instead when
+                        playback compatibility matters most.
+                    </Paragraph>
+                    <Paragraph>
+                        <strong>Apple Silicon:</strong> use <code>H.265 (VideoToolbox)</code>, or its H.264 option for
+                        maximum compatibility.
+                    </Paragraph>
+                    <Paragraph>
+                        <strong>CPU encoding:</strong> use <code>H.264 (x264)</code> as the safe default. Choose{" "}
+                        <code>AV1 (SVT)</code> or <code>H.265 (x265)</code> for smaller files when speed is less
+                        important.
+                    </Paragraph>
+                    <Paragraph>Use a 10-bit encoder only for HDR or 10-bit sources.</Paragraph>
+                </Flex>
+            </Card>
+        </SettingsSection>
+    );
+}
+
+const settings = definePluginSettings({
+    videoEncoder: {
+        type: OptionType.COMPONENT,
+        default: DEFAULT_VIDEO_ENCODER,
+        component: ErrorBoundary.wrap(VideoEncoderSetting, { noop: true })
+    }
+});
 
 function CompressIcon() {
     return (
@@ -127,6 +291,7 @@ export default definePlugin({
         }
     ],
     tags: ["Media", "Utility"],
+    settings,
 
     patches: [
         {

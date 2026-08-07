@@ -29,6 +29,10 @@ export interface HandBrakeStatus {
     provider?: HandBrakeResolution["provider"];
     version?: string;
 }
+export interface HandBrakeEncodersResult {
+    available: boolean;
+    encoders: string[];
+}
 
 // Saved resolution discovery
 
@@ -87,18 +91,53 @@ async function probe(command: string, argsPrefix: string[]): Promise<string | un
         return undefined;
     }
 }
+async function resolveHandBrake(): Promise<HandBrakeResolution | undefined> {
+    const saved = await readResolution();
+    if (saved) {
+        const version = await probe(saved.command, saved.argsPrefix);
+        if (version) return { ...saved, version };
+    }
+
+    const command = await findOnPath();
+    if (!command) return undefined;
+    const version = await probe(command, []);
+    return version ? { id: "handbrake-cli", provider: "path", command, argsPrefix: [], version } : undefined;
+}
+
+function parseHandBrakeEncoders(output: string): string[] {
+    const encoderSection =
+        /(?:^|\r?\n)\s+-e,\s+--encoder <string>\s+Select video encoder:\s*\r?\n([\s\S]*?)(?=\r?\n\s+--encoder-preset)/.exec(
+            output
+        )?.[1];
+    if (!encoderSection) return [];
+
+    return encoderSection
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => /^[A-Za-z0-9_]+$/.test(line));
+}
 
 // Public native API
 
 export async function getHandBrakeStatus(): Promise<HandBrakeStatus> {
-    const saved = await readResolution();
-    if (saved) {
-        const version = await probe(saved.command, saved.argsPrefix);
-        if (version) return { available: true, provider: saved.provider, version };
-    }
+    const resolution = await resolveHandBrake();
+    return resolution
+        ? { available: true, provider: resolution.provider, version: resolution.version }
+        : { available: false };
+}
 
-    const command = await findOnPath();
-    if (!command) return { available: false };
-    const version = await probe(command, []);
-    return version ? { available: true, provider: "path", version } : { available: false };
+export async function getHandBrakeEncoders(): Promise<HandBrakeEncodersResult> {
+    const resolution = await resolveHandBrake();
+    if (!resolution) return { available: false, encoders: [] };
+
+    try {
+        const { stdout, stderr } = await exec(resolution.command, [...resolution.argsPrefix, "--help"], {
+            timeout: 15_000,
+            windowsHide: true,
+            maxBuffer: 1024 * 1024
+        });
+        return { available: true, encoders: parseHandBrakeEncoders(`${stdout}\n${stderr}`) };
+    } catch {
+        return { available: true, encoders: [] };
+    }
 }

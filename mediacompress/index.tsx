@@ -13,7 +13,8 @@ import { Paragraph } from "@components/Paragraph";
 import { useAwaiter } from "@utils/react";
 import type { PluginNative, PluginSettingComponentProps } from "@utils/types";
 import definePlugin, { OptionType } from "@utils/types";
-import { findByCodeLazy } from "@webpack";
+import type { Channel } from "@vencord/discord-types";
+import { filters, findByCodeLazy, mapMangledModuleLazy } from "@webpack";
 
 import { Select, useEffect, useState } from "@webpack/common";
 
@@ -24,6 +25,32 @@ import "./style.css";
 const ActionBarIcon = findByCodeLazy("Children.map", "isValidElement", "dangerous:");
 const Native = VencordNative.pluginHelpers.MediaCompress as
     Partial<PluginNative<typeof MediaCompressNative>> | undefined;
+
+interface UploadLimitExperimentConfig {
+    enabled: boolean;
+    threshold: number;
+    isGA: boolean;
+}
+
+interface UploadLimitExperimentModule {
+    getConfig(options: { location: string }): UploadLimitExperimentConfig;
+    getEffectiveLimit(config: UploadLimitExperimentConfig, baseLimit: number): number;
+}
+
+const getBaseUploadFileSizeLimit = findByCodeLazy("getGuildMaxFileSize") as (guildId?: string | null) => number;
+const UploadLimitExperiment = mapMangledModuleLazy(["2026-04-kestrel", "2026-08-kestrel-ga"], {
+    getConfig: filters.byCode(".getConfig({location:", "threshold:20,isGA:!0"),
+    getEffectiveLimit: filters.byCode("Math.max(1048576*", ".threshold")
+}) as UploadLimitExperimentModule;
+
+const UPLOAD_LIMIT_LOCATION = "web.filesExceedUploadLimits";
+
+export function getUploadFileSizeLimit(channel: Channel): number {
+    const baseLimit = getBaseUploadFileSizeLimit(channel.guild_id);
+    const experimentConfig = UploadLimitExperiment.getConfig({ location: UPLOAD_LIMIT_LOCATION });
+
+    return UploadLimitExperiment.getEffectiveLimit(experimentConfig, baseLimit);
+}
 
 const MOCK_PROGRESS_INCREMENT = 5;
 const MOCK_PROGRESS_INTERVAL_MS = 125;
@@ -300,6 +327,21 @@ export default definePlugin({
                 match: /(?<=children:\[)(?=.{10,80}tooltip:.{0,100}#{intl::ATTACHMENT_UTILITIES_SPOILER})/,
                 replace: "arguments[0].canEdit!==false?$self.CompressAttachmentButton():null,"
             }
+        },
+        // Bypass Nitro's per-file gate while preserving Discord's absolute aggregate-size guard.
+        {
+            find: '"web.filesExceedUploadLimits"',
+            group: true,
+            replacement: [
+                {
+                    match: /(?<=location:"web\.filesExceedUploadLimits"\}\);if\(\i\.enabled\)\{.{0,120}?return )Array\.from\(\i\)\.some\(\i=>\i\.size>\i\)/,
+                    replace: "false"
+                },
+                {
+                    match: /(?<=\|\|\i\.\i\(\i\)\}return )\i\.\i\(\i,\i\)(?=\|\|\i\.\i\(\i\)\})/,
+                    replace: "false"
+                }
+            ]
         }
     ],
 

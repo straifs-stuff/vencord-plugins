@@ -23,7 +23,7 @@
     "build": "tsc --project tsconfig.build.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "pnpm format:check && pnpm typecheck && node --test test/cli.test.js",
+    "test": "pnpm format:check && pnpm typecheck && node --test test/*.test.js",
     "typecheck": "tsc --noEmit"
   },
   "packageManager": "pnpm@11.3.0",

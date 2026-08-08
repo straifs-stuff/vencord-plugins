@@ -4,16 +4,22 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import type { ChildProcess } from "node:child_process";
-import { execFile, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import type { FileHandle } from "node:fs/promises";
-import { mkdir, mkdtemp, open, readFile, realpath, rm, stat, statfs, unlink } from "node:fs/promises";
+import { type FileHandle, mkdir, mkdtemp, open, readFile, realpath, rm, stat, statfs, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, delimiter, extname, join } from "node:path";
 import { promisify } from "node:util";
 
 import type { IpcMainInvokeEvent } from "electron";
+
+import {
+    chooseOpusBitrate,
+    chooseVideoPlan,
+    isHardwareEncoder,
+    type OutputVideoPlan,
+    type VideoSourceMetadata
+} from "./planning";
 
 const exec = promisify(execFile);
 
@@ -22,11 +28,6 @@ const MAX_INPUT_SIZE = 8 * 1024 * 1024 * 1024;
 const MAX_TARGET_SIZE = 2 * 1024 * 1024 * 1024;
 const MIN_TARGET_SIZE = 1024 * 1024;
 const MAX_ENCODING_ATTEMPTS = 4;
-const MIN_OUTPUT_FRAME_RATE = 24;
-const MIN_OUTPUT_SHORT_EDGE = 240;
-const MIN_OPUS_BITRATE = 24;
-const MAX_OPUS_BITRATE = 64;
-const OPUS_BITRATE_STEP = 8;
 const HARDWARE_BITRATE_RESERVE_KBPS = 8;
 const MP4_BYTES_PER_PACKET_RESERVE = 16;
 const AUDIO_PACKETS_PER_SECOND_RESERVE = 50;
@@ -80,14 +81,6 @@ const TEN_BIT_ENCODERS: Record<string, true> = {
     vt_h265_10bit: true
 };
 
-const AUDIO_PASSTHROUGH_ENCODERS: Record<string, string> = {
-    aac: "copy:aac",
-    ac3: "copy:ac3",
-    alac: "copy:alac",
-    eac3: "copy:eac3",
-    mp3: "copy:mp3",
-    opus: "copy:opus"
-};
 interface HandBrakeResolution {
     id: "handbrake-cli";
     provider: "path" | "managed" | "flatpak";
@@ -138,7 +131,6 @@ interface HandBrakeDuration {
 interface HandBrakeAudioTrack {
     BitRate?: number;
     ChannelCount?: number;
-    CodecName?: string;
 }
 
 interface HandBrakeTitle {
@@ -156,17 +148,17 @@ interface HandBrakeTitle {
         Height: number;
         Width: number;
     };
+    VideoCodec?: string;
 }
 
 interface HandBrakeTitleSet {
     TitleList: HandBrakeTitle[];
 }
 
-interface SourceMetadata {
+interface SourceMetadata extends VideoSourceMetadata {
     audio?: {
         bitrateKbps: number;
         channels: number;
-        passthroughEncoder?: string;
     };
     durationSeconds: number;
     frameRate: number;
@@ -175,14 +167,7 @@ interface SourceMetadata {
     width: number;
 }
 
-type AudioPlan =
-    { bitrate: number; encoder: string; mode: "copy" } | { bitrate: number; mixdown: "mono" | "stereo"; mode: "opus" };
-
-interface OutputVideoPlan {
-    frameRate: number;
-    height: number;
-    width: number;
-}
+type AudioPlan = { bitrate: number; mixdown: "mono" | "stereo"; mode: "opus" };
 
 interface ProcessResult {
     code: number;
@@ -404,7 +389,7 @@ function updateProgress(job: CompressionJob, text: string) {
 }
 
 function terminateProcess(job: CompressionJob) {
-    const child = job.child;
+    const { child } = job;
     if (!child?.pid || child.exitCode !== null) return;
 
     try {
@@ -474,7 +459,7 @@ function durationInSeconds(duration: HandBrakeDuration): number {
     return duration.Hours * 3600 + duration.Minutes * 60 + duration.Seconds;
 }
 
-function parseSourceMetadata(output: string): SourceMetadata | undefined {
+function parseSourceMetadata(output: string, fileSize: number): SourceMetadata | undefined {
     const titleSet = extractMarkedJson<HandBrakeTitleSet>(output, "JSON Title Set:")?.value;
     const title = titleSet?.TitleList?.[0];
     if (!title) return undefined;
@@ -484,6 +469,9 @@ function parseSourceMetadata(output: string): SourceMetadata | undefined {
     const bitDepth = title.Color?.BitDepth ?? 8;
     const transfer = title.Color?.Transfer;
     const firstAudio = title.AudioList[0];
+    const audioBitrateKbps = firstAudio ? Math.max(1, Math.ceil((firstAudio.BitRate ?? 0) / 1000)) : 0;
+    const totalBitrateKbps = (fileSize * 8) / (durationSeconds * 1000);
+    const videoBitrateKbps = Math.max(1, totalBitrateKbps - audioBitrateKbps);
 
     if (
         !Number.isFinite(durationSeconds) ||
@@ -500,102 +488,40 @@ function parseSourceMetadata(output: string): SourceMetadata | undefined {
     return {
         audio: firstAudio
             ? {
-                  bitrateKbps: Math.max(1, Math.ceil((firstAudio.BitRate ?? 0) / 1000)),
-                  channels: Math.max(1, firstAudio.ChannelCount ?? 2),
-                  passthroughEncoder: firstAudio.CodecName
-                      ? AUDIO_PASSTHROUGH_ENCODERS[firstAudio.CodecName]
-                      : undefined
+                  bitrateKbps: audioBitrateKbps,
+                  channels: Math.max(1, firstAudio.ChannelCount ?? 2)
               }
             : undefined,
         durationSeconds,
         frameRate,
         hdr: bitDepth > 8 && (transfer === 16 || transfer === 18),
         height: title.Geometry.Height,
+        videoBitrateKbps,
+        videoCodec: title.VideoCodec ?? "unknown",
         width: title.Geometry.Width
     };
-}
-
-function isHardwareEncoder(encoder: string): boolean {
-    return /^(?:mf|nvenc|qsv|vce|vt)_/.test(encoder);
-}
-
-function minimumBitsPerPixel(encoder: string): number {
-    const hardwarePenalty = isHardwareEncoder(encoder) ? 0.01 : 0;
-    if (encoder.includes("av1")) return 0.035 + hardwarePenalty;
-    if (encoder.includes("h265") || encoder.startsWith("x265")) return 0.04 + hardwarePenalty;
-    return 0.055 + hardwarePenalty;
-}
-
-function scaledDimensions(width: number, height: number, shortEdge: number): { width: number; height: number } {
-    const scale = Math.min(1, shortEdge / Math.min(width, height));
-    return {
-        height: Math.max(2, Math.floor((height * scale) / 2) * 2),
-        width: Math.max(2, Math.floor((width * scale) / 2) * 2)
-    };
-}
-
-function chooseVideoPlan(source: SourceMetadata, encoder: string, videoKbps: number): OutputVideoPlan {
-    const threshold = minimumBitsPerPixel(encoder);
-    const shortEdge = Math.min(source.width, source.height);
-    const minimumShortEdge = Math.min(shortEdge, MIN_OUTPUT_SHORT_EDGE);
-    const rungs = [2160, 1440, 1080, 720, MIN_OUTPUT_SHORT_EDGE];
-    const dimensions = [{ width: source.width, height: source.height }];
-
-    for (const rung of rungs) {
-        if (rung >= shortEdge || rung < minimumShortEdge) continue;
-        const scaled = scaledDimensions(source.width, source.height, rung);
-        if (!dimensions.some(candidate => candidate.width === scaled.width && candidate.height === scaled.height))
-            dimensions.push(scaled);
-    }
-
-    const minimumFrameRate = Math.min(source.frameRate, MIN_OUTPUT_FRAME_RATE);
-    const frameRates = [source.frameRate, 120, 100, 90, 75, 72, 60, 50, 48, 30, MIN_OUTPUT_FRAME_RATE].filter(
-        (frameRate, index, values) =>
-            frameRate <= source.frameRate && frameRate >= minimumFrameRate && values.indexOf(frameRate) === index
-    );
-    for (const frameRate of frameRates) {
-        for (const size of dimensions) {
-            const bitsPerPixel = (videoKbps * 1000) / (size.width * size.height * frameRate);
-            if (bitsPerPixel >= threshold) return { ...size, frameRate };
-        }
-    }
-
-    return { ...dimensions.at(-1)!, frameRate: frameRates.at(-1)! };
 }
 
 function chooseAudioPlan(source: SourceMetadata, totalKbps: number): AudioPlan | undefined {
     const { audio } = source;
     if (!audio) return undefined;
 
-    const maximumAudioBitrate = Math.floor(totalKbps * 0.35);
-    if (audio.passthroughEncoder && audio.bitrateKbps <= maximumAudioBitrate)
-        return {
-            bitrate: audio.bitrateKbps,
-            encoder: audio.passthroughEncoder,
-            mode: "copy"
-        };
+    const bitrate = chooseOpusBitrate(totalKbps);
+    if (Math.ceil(bitrate * 1.12) >= totalKbps)
+        throw new CompressionError("The minimum audio bitrate leaves no room for video at this upload limit.");
 
-    const opusBitrate = Math.min(
-        MAX_OPUS_BITRATE,
-        Math.floor(maximumAudioBitrate / OPUS_BITRATE_STEP) * OPUS_BITRATE_STEP
-    );
-    if (opusBitrate >= MIN_OPUS_BITRATE)
-        return {
-            bitrate: opusBitrate,
-            mixdown: audio.channels === 1 || opusBitrate < 32 ? "mono" : "stereo",
-            mode: "opus"
-        };
-
-    throw new CompressionError("The minimum audio bitrate leaves no room for video at this upload limit.");
+    return {
+        bitrate,
+        mixdown: audio.channels === 1 ? "mono" : "stereo",
+        mode: "opus"
+    };
 }
 
 function audioBudgetKbps(audioPlan: AudioPlan | undefined): number {
-    if (!audioPlan) return 0;
-    return Math.ceil(audioPlan.bitrate * (audioPlan.mode === "opus" ? 1.12 : 1.02));
+    return audioPlan ? Math.ceil(audioPlan.bitrate * 1.12) : 0;
 }
-
-function muxReserveBytes(source: SourceMetadata): number {
-    const packetsPerSecond = source.frameRate + (source.audio ? AUDIO_PACKETS_PER_SECOND_RESERVE : 0);
+function muxReserveBytes(source: SourceMetadata, videoFrameRate = source.frameRate): number {
+    const packetsPerSecond = videoFrameRate + (source.audio ? AUDIO_PACKETS_PER_SECOND_RESERVE : 0);
     return Math.max(64 * 1024, Math.ceil(source.durationSeconds * packetsPerSecond * MP4_BYTES_PER_PACKET_RESERVE));
 }
 
@@ -651,7 +577,6 @@ function makeEncodeArgs(
     if (source.hdr && !Object.hasOwn(TEN_BIT_ENCODERS, job.encoder)) args.push("--colorspace", "bt709");
 
     if (!audioPlan) args.push("-a", "none");
-    else if (audioPlan.mode === "copy") args.push("-a", "1", "-E", audioPlan.encoder);
     else args.push("-a", "1", "-E", "opus", "-B", String(audioPlan.bitrate), "-6", audioPlan.mixdown);
 
     if (Object.hasOwn(MULTI_PASS_ENCODERS, job.encoder)) args.push("--multi-pass", "--turbo");
@@ -718,7 +643,7 @@ async function cancelJob(job: CompressionJob) {
     job.cancelled = true;
     job.phase = "cancelled";
     job.progress = 0;
-    const child = job.child;
+    const { child } = job;
     terminateProcess(job);
     if (child) await waitForProcessExit(child);
     await releaseJob(job);
@@ -785,7 +710,7 @@ async function runCompression(job: CompressionJob) {
         if (job.cancelled) return;
         if (scanResult.code !== 0) throw new CompressionError("HandBrakeCLI could not read this video.");
 
-        const source = parseSourceMetadata(`${scanResult.stdout}\n${scanResult.stderr}`);
+        const source = parseSourceMetadata(`${scanResult.stdout}\n${scanResult.stderr}`, job.expectedSize);
         if (!source) throw new CompressionError("HandBrakeCLI did not find a usable video title.");
 
         const presetResult = await runHandBrake(
@@ -805,22 +730,33 @@ async function runCompression(job: CompressionJob) {
                 : undefined;
 
         const targetBytes = Math.min(job.targetSize - 64 * 1024, Math.floor(job.targetSize * 0.995));
-        const muxReserve = muxReserveBytes(source);
-        let totalKbps = Math.max(1, Math.floor(((targetBytes - muxReserve) * 8) / (source.durationSeconds * 1000)));
-        let audioPlan = chooseAudioPlan(source, totalKbps);
-        let videoKbps = Math.max(
-            1,
-            totalKbps -
-                audioBudgetKbps(audioPlan) -
-                (isHardwareEncoder(job.encoder) ? HARDWARE_BITRATE_RESERVE_KBPS : 0)
-        );
+        let muxReserve = muxReserveBytes(source);
+        let totalKbps!: number;
+        let audioPlan!: AudioPlan | undefined;
+        let videoKbps!: number;
+        let videoPlan!: OutputVideoPlan;
+
+        for (let refinement = 0; refinement < 2; refinement++) {
+            totalKbps = Math.max(1, Math.floor(((targetBytes - muxReserve) * 8) / (source.durationSeconds * 1000)));
+            audioPlan = chooseAudioPlan(source, totalKbps);
+            videoKbps = Math.max(
+                1,
+                totalKbps -
+                    audioBudgetKbps(audioPlan) -
+                    (isHardwareEncoder(job.encoder) ? HARDWARE_BITRATE_RESERVE_KBPS : 0)
+            );
+            videoPlan = chooseVideoPlan(source, job.encoder, videoKbps);
+
+            const refinedMuxReserve = muxReserveBytes(source, videoPlan.frameRate);
+            if (refinedMuxReserve === muxReserve) break;
+            muxReserve = refinedMuxReserve;
+        }
 
         for (let attempt = 1; attempt <= MAX_ENCODING_ATTEMPTS; attempt++) {
             job.phase = "encoding";
             job.progress = 0;
             job.progressBuffer = "";
 
-            const videoPlan = chooseVideoPlan(source, job.encoder, videoKbps);
             await unlink(job.outputPath).catch(() => {});
             const result = await runHandBrake(
                 job,
@@ -860,6 +796,7 @@ async function runCompression(job: CompressionJob) {
                     audioBudgetKbps(audioPlan) -
                     (isHardwareEncoder(job.encoder) ? HARDWARE_BITRATE_RESERVE_KBPS : 0)
             );
+            videoPlan = chooseVideoPlan(source, job.encoder, videoKbps);
         }
     } catch (error) {
         if (job.cancelled) return;

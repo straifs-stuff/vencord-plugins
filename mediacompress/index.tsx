@@ -13,10 +13,10 @@ import { Paragraph } from "@components/Paragraph";
 import { useAwaiter } from "@utils/react";
 import type { PluginNative, PluginSettingComponentProps } from "@utils/types";
 import definePlugin, { OptionType } from "@utils/types";
-import type { Channel } from "@vencord/discord-types";
+import type { Channel, CloudUpload } from "@vencord/discord-types";
 import { filters, findByCodeLazy, mapMangledModuleLazy } from "@webpack";
 
-import { Select, useEffect, useState } from "@webpack/common";
+import { ChannelStore, Select, useEffect, useState } from "@webpack/common";
 
 import type { HandBrakeEncodersResult } from "./native";
 import type * as MediaCompressNative from "./native";
@@ -255,7 +255,12 @@ function CompressionCompleteIcon() {
     );
 }
 
-function CompressAttachmentButton() {
+interface CompressAttachmentButtonProps {
+    channelId: string;
+    upload: CloudUpload;
+}
+
+function CompressAttachmentButton({ channelId, upload }: CompressAttachmentButtonProps) {
     const [isCompressing, setIsCompressing] = useState(false);
     const [progress, setProgress] = useState(0);
 
@@ -268,6 +273,9 @@ function CompressAttachmentButton() {
 
         return () => clearTimeout(timer);
     }, [isCompressing, progress]);
+
+    const channel = ChannelStore.getChannel(channelId);
+    if (upload.isVideo && channel != null && upload.item.file.size <= getUploadFileSizeLimit(channel)) return null;
 
     function startMockCompression() {
         if (isCompressing) return;
@@ -325,7 +333,7 @@ export default definePlugin({
             find: "#{intl::ATTACHMENT_UTILITIES_SPOILER}",
             replacement: {
                 match: /(?<=children:\[)(?=.{10,80}tooltip:.{0,100}#{intl::ATTACHMENT_UTILITIES_SPOILER})/,
-                replace: "arguments[0].canEdit!==false?$self.CompressAttachmentButton():null,"
+                replace: "arguments[0].canEdit!==false?$self.CompressAttachmentButton(arguments[0]):null,"
             }
         },
         // Bypass Nitro's per-file gate while preserving Discord's absolute aggregate-size guard.

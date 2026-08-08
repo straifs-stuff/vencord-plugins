@@ -17,10 +17,9 @@ import type { PluginNative, PluginSettingComponentProps } from "@utils/types";
 import definePlugin, { OptionType } from "@utils/types";
 import type { Channel, CloudUpload } from "@vencord/discord-types";
 import { CloudUploadPlatform, DraftType } from "@vencord/discord-types/enums";
-import { filters, findByCodeLazy, mapMangledModuleLazy } from "@webpack";
+import { filters, findByCodeLazy, findLazy, mapMangledModuleLazy } from "@webpack";
 import {
     ChannelStore,
-    CloudUploader,
     Select,
     showToast,
     Toasts,
@@ -36,6 +35,7 @@ import type * as MediaCompressNative from "./native";
 import "./style.css";
 
 const logger = new Logger("MediaCompress");
+const CloudUploader = findLazy(module => module.prototype?.trackUploadFinished) as typeof CloudUpload;
 const ActionBarIcon = findByCodeLazy("Children.map", "isValidElement", "dangerous:");
 const Native = VencordNative.pluginHelpers.MediaCompress as
     Partial<PluginNative<typeof MediaCompressNative>> | undefined;

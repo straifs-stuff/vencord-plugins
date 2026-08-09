@@ -6,78 +6,304 @@
     width: 20px !important; /* Override Discord's ActionBarIcon size clamp. */
 }
 
-.vc-media-compress-icon {
-    transform-box: view-box;
-    transform-origin: center;
+.vc-media-compress-queue-icon {
+    height: 24px;
+    width: 24px;
 }
 
-.vc-media-compress-icon-compress {
-    opacity: 1;
-    transform: scale(1);
+.vc-media-compress-queue-button-anchor {
+    display: flex;
 }
 
-.vc-media-compress-icon-progress {
-    filter: blur(8px);
-    opacity: 0;
-    transform: scale(0.5);
+.vc-media-compress-queue-popout {
+    height: min(480px, calc(100vh - 32px));
+    max-width: calc(100vw - 32px);
+    overflow: hidden;
+    width: 520px;
 }
 
-.vc-media-compress-icon-complete {
-    color: var(--status-positive);
-    filter: blur(8px);
-    opacity: 0;
-    transform: scale(0.5);
+.vc-media-compress-queue-header {
+    align-items: center;
+    display: flex;
+    min-height: 44px;
+    min-width: 0;
+    padding: 0 16px;
 }
 
-.vc-media-compress-is-compressing .vc-media-compress-icon-compress {
-    animation: vc-media-compress-icon-out 150ms ease-in forwards;
+.vc-media-compress-queue-empty {
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px;
+    text-align: center;
 }
 
-.vc-media-compress-is-compressing .vc-media-compress-icon-progress {
-    animation: vc-media-compress-icon-in 300ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+.vc-media-compress-queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+    padding: 0 10px 10px;
 }
 
-.vc-media-compress-is-complete .vc-media-compress-icon-progress {
-    animation: vc-media-compress-icon-out 150ms ease-in forwards;
+.vc-media-compress-queue-row {
+    background: var(--background-base-lower);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: 180px minmax(0, 1fr);
+    padding: 12px;
 }
 
-.vc-media-compress-is-complete .vc-media-compress-icon-complete {
-    animation: vc-media-compress-icon-in 300ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+.vc-media-compress-queue-thumbnail {
+    align-self: center;
+    aspect-ratio: 16 / 9;
+    background: var(--background-surface-higher, var(--background-secondary));
+    border-radius: 8px;
+    display: block;
+    object-fit: cover;
+    width: 180px;
 }
 
-.vc-media-compress-spinner {
-    animation: vc-media-compress-spin 1s linear infinite;
-    transform-box: view-box;
-    transform-origin: center;
+.vc-media-compress-queue-details {
+    display: flex;
+    flex-direction: column;
+    min-height: 101px;
+    min-width: 0;
 }
 
-@keyframes vc-media-compress-icon-out {
+.vc-media-compress-queue-filename {
+    color: var(--text-strong, var(--text-default));
+    display: -webkit-box;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 20px;
+    min-width: 0;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.vc-media-compress-queue-position {
+    color: var(--text-muted);
+    display: inline;
+    margin-left: 4px;
+    white-space: nowrap;
+}
+
+.vc-media-compress-queue-meta {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+    margin-top: 5px;
+    min-height: 20px;
+}
+
+.vc-media-compress-queue-size {
+    align-items: center;
+    background: var(--background-surface-higher, var(--background-mod-strong));
+    border-radius: 4px;
+    box-sizing: border-box;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 600;
+    height: 20px;
+    line-height: 14px;
+    padding: 0 5px;
+    white-space: nowrap;
+}
+
+.vc-media-compress-queue-size-warning {
+    background: color-mix(in srgb, var(--status-warning) 16%, transparent);
+    color: var(--text-feedback-warning, var(--status-warning));
+    gap: 4px;
+}
+
+.vc-media-compress-queue-size-warning > svg {
+    color: inherit;
+    height: 12px !important; /* Override Discord's warning icon default size. */
+    width: 12px !important; /* Override Discord's warning icon default size. */
+}
+
+.vc-media-compress-queue-size-warning path {
+    fill: currentcolor;
+}
+
+.vc-media-compress-queue-footer {
+    align-items: end;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    margin-top: auto;
+    min-width: 0;
+}
+
+.vc-media-compress-queue-phase {
+    color: var(--text-muted);
+    display: grid;
+    font-size: 13px;
+    gap: 5px;
+    line-height: 16px;
+    min-width: 0;
+}
+
+.vc-media-compress-queue-progress {
+    background: var(--background-surface-higher);
+    border: 0;
+    border-radius: 4px;
+    box-shadow: none;
+    height: 6px;
+    outline: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.vc-media-compress-queue-progress-fill {
+    background: var(--brand-500);
+    border: 0;
+    border-radius: inherit;
+    box-shadow: none;
+    height: 100%;
+    outline: 0;
+    overflow: hidden;
+    position: relative;
+    transition:
+        width 240ms linear,
+        background-color 160ms ease;
+}
+
+.vc-media-compress-queue-progress-fill-active::after {
+    animation: vc-media-compress-progress-glint 1.4s ease-in-out infinite;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 45%), transparent);
+    content: "";
+    inset: 0;
+    position: absolute;
+    transform: translateX(-140%) skewX(-20deg);
+    width: 45%;
+}
+
+.vc-media-compress-queue-progress-fill-success {
+    background: var(--status-positive);
+}
+
+.vc-media-compress-queue-progress-fill-danger {
+    background: var(--status-danger);
+}
+
+@keyframes vc-media-compress-progress-glint {
     to {
-        filter: blur(8px);
-        opacity: 0;
-        transform: scale(0.5);
-    }
-}
-
-@keyframes vc-media-compress-icon-in {
-    to {
-        filter: blur(0);
-        opacity: 1;
-        transform: scale(1);
-    }
-}
-
-@keyframes vc-media-compress-spin {
-    to {
-        transform: rotate(360deg);
+        transform: translateX(320%) skewX(-20deg);
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .vc-media-compress-is-compressing .vc-media-compress-icon-compress,
-    .vc-media-compress-is-compressing .vc-media-compress-icon-progress,
-    .vc-media-compress-is-complete .vc-media-compress-icon-complete,
-    .vc-media-compress-spinner {
-        animation-duration: 1ms;
+    .vc-media-compress-queue-progress-fill {
+        transition: none;
+    }
+
+    .vc-media-compress-queue-progress-fill-active::after {
+        animation: none;
+        display: none;
+    }
+}
+
+.vc-media-compress-queue-error {
+    color: var(--text-feedback-critical);
+    font-size: 12px;
+    line-height: 16px;
+    margin: 4px 0;
+    overflow-wrap: anywhere;
+}
+
+.vc-media-compress-queue-actions {
+    align-items: center;
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+.vc-media-compress-queue-action {
+    align-items: center;
+    background: transparent;
+    color: var(--interactive-icon-default);
+    cursor: pointer;
+    display: flex;
+    height: 26px;
+    justify-content: center;
+    padding: 0;
+    transition:
+        color 120ms ease,
+        opacity 120ms ease;
+    width: 26px;
+}
+
+.vc-media-compress-queue-action:hover {
+    background: transparent;
+    color: var(--interactive-icon-active);
+}
+
+.vc-media-compress-queue-action-dangerous {
+    color: var(--control-critical-secondary-icon-default, var(--status-danger));
+    opacity: 0.72;
+}
+
+.vc-media-compress-queue-action-dangerous:hover {
+    color: var(--control-critical-secondary-icon-hover, var(--text-feedback-critical));
+    opacity: 1;
+}
+
+.vc-media-compress-queue-action-dangerous:active {
+    color: var(--control-critical-secondary-icon-active, var(--text-feedback-critical));
+    opacity: 0.86;
+}
+
+.vc-media-compress-queue-action-dangerous svg {
+    color: inherit;
+}
+
+.vc-media-compress-queue-action-dangerous path {
+    fill: currentcolor;
+}
+
+.vc-media-compress-queue-action:focus-visible {
+    border-radius: 4px;
+    outline: 2px solid var(--brand-500);
+    outline-offset: 2px;
+}
+
+.vc-media-compress-queue-action-disabled,
+.vc-media-compress-queue-action-disabled:hover {
+    color: var(--interactive-muted);
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+
+.vc-media-compress-queue-actions svg {
+    height: 22px;
+    width: 22px;
+}
+
+.vc-media-compress-queue-retry {
+    height: auto;
+    min-height: 24px;
+    min-width: 0;
+    padding: 0 4px;
+}
+
+@media (width <= 560px) {
+    .vc-media-compress-queue-row {
+        gap: 10px;
+        grid-template-columns: 128px minmax(0, 1fr);
+        padding: 10px;
+    }
+
+    .vc-media-compress-queue-thumbnail {
+        width: 128px;
     }
 }

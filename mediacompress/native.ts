@@ -6,12 +6,24 @@
 
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { type FileHandle, mkdir, mkdtemp, open, readFile, realpath, rm, stat, statfs, unlink } from "node:fs/promises";
+import {
+    type FileHandle,
+    mkdir,
+    mkdtemp,
+    open,
+    readFile,
+    realpath,
+    rm,
+    rmdir,
+    stat,
+    statfs,
+    unlink
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, delimiter, extname, join } from "node:path";
 import { promisify } from "node:util";
 
-import type { IpcMainInvokeEvent } from "electron";
+import { app, type IpcMainInvokeEvent, shell } from "electron";
 
 import {
     chooseOpusBitrate,
@@ -178,14 +190,15 @@ interface ProcessResult {
 interface CompressionJob {
     cancelled: boolean;
     child?: ChildProcess;
-    cleanupTimer?: ReturnType<typeof setTimeout>;
+    cancellation?: Promise<void>;
+    cleanupTimer?: NodeJS.Timeout;
     dir: string;
     encoder: string;
     error?: string;
     expectedSize: number;
     inputHandle?: FileHandle;
     inputPath: string;
-    killTimer?: ReturnType<typeof setTimeout>;
+    killTimer?: NodeJS.Timeout;
     outputHandle?: FileHandle;
     outputPath: string;
     outputSize?: number;
@@ -218,15 +231,10 @@ function resolutionPath(): string {
 }
 
 function compressionCacheRoot(): string {
-    const home = homedir();
-    return process.platform === "win32"
-        ? join(process.env.LOCALAPPDATA || join(home, "AppData", "Local"), "straif-plugins", "cache", "media-compress")
-        : process.platform === "darwin"
-          ? join(home, "Library", "Caches", "straif-plugins", "media-compress")
-          : join(process.env.XDG_CACHE_HOME || join(home, ".cache"), "straif-plugins", "media-compress");
+    return join(app.getPath("userData"), "MediaCompress", "compression");
 }
 
-const interruptedJobCleanup = rm(compressionCacheRoot(), { force: true, recursive: true }).then(
+const startupJobCleanup = rm(compressionCacheRoot(), { force: true, recursive: true }).then(
     () => true,
     () => false
 );
@@ -607,6 +615,7 @@ async function releaseJob(job: CompressionJob) {
     jobs.delete(job.token);
     removeOwnerJob(job);
     await removeJobFiles(job);
+    if (jobs.size === 0) await rmdir(compressionCacheRoot()).catch(() => {});
 }
 
 function scheduleJobCleanup(job: CompressionJob) {
@@ -638,15 +647,26 @@ async function waitForProcessExit(child: ChildProcess): Promise<void> {
     await promise;
 }
 
-async function cancelJob(job: CompressionJob) {
-    if (job.phase === "cancelled") return;
-    job.cancelled = true;
-    job.phase = "cancelled";
-    job.progress = 0;
-    const { child } = job;
-    terminateProcess(job);
-    if (child) await waitForProcessExit(child);
-    await releaseJob(job);
+function cancelJob(job: CompressionJob): Promise<void> {
+    return (job.cancellation ??= (async () => {
+        job.cancelled = true;
+        job.phase = "cancelled";
+        job.progress = 0;
+        const { child } = job;
+        terminateProcess(job);
+        if (child) await waitForProcessExit(child);
+        await releaseJob(job);
+    })());
+}
+
+async function cancelOwnerJobs(ownerId: number) {
+    const tokens = [...(ownerJobs.get(ownerId) ?? [])];
+    await Promise.all(
+        tokens
+            .map(token => jobs.get(token))
+            .filter(job => job !== undefined)
+            .map(cancelJob)
+    );
 }
 
 function registerOwner(event: IpcMainInvokeEvent, token: string) {
@@ -659,11 +679,7 @@ function registerOwner(event: IpcMainInvokeEvent, token: string) {
     registeredOwners.add(ownerId);
     event.sender.once("destroyed", () => {
         registeredOwners.delete(ownerId);
-        const ownedTokens = [...(ownerJobs.get(ownerId) ?? [])];
-        for (const ownedToken of ownedTokens) {
-            const job = jobs.get(ownedToken);
-            if (job) void cancelJob(job);
-        }
+        void cancelOwnerJobs(ownerId);
     });
 }
 
@@ -778,7 +794,6 @@ async function runCompression(job: CompressionJob) {
                 job.phase = "complete";
                 job.progress = 1;
                 await unlink(job.inputPath).catch(() => {});
-                scheduleJobCleanup(job);
                 return;
             }
 
@@ -853,8 +868,7 @@ export async function beginCompressionInput(
         return { success: false, error: "The selected video encoder is not supported." };
 
     const root = compressionCacheRoot();
-    if (!(await interruptedJobCleanup))
-        return { success: false, error: "Could not remove interrupted compression jobs." };
+    if (!(await startupJobCleanup)) return { success: false, error: "Could not remove interrupted compression jobs." };
     await mkdir(root, { recursive: true });
     if (!(await ensureDiskSpace(root, options.fileSize, options.targetSize)))
         return { success: false, error: "There is not enough free disk space to compress this video." };
@@ -981,6 +995,25 @@ export async function readCompressionOutputChunk(
     }
 }
 
+export async function revealCompressionOutput(
+    event: IpcMainInvokeEvent,
+    token: string
+): Promise<CompressionOperationResult> {
+    const job = getOwnedJob(event, token);
+    if (!job || job.phase !== "complete" || job.outputSize === undefined)
+        return operationError("The compressed output is unavailable.");
+
+    const output = await stat(job.outputPath).catch(() => undefined);
+    if (!output?.isFile()) return operationError("The compressed output is unavailable.");
+
+    try {
+        const error = await shell.openPath(job.dir);
+        return error ? operationError("Could not open the compressed output in the file browser.") : { success: true };
+    } catch {
+        return operationError("Could not open the compressed output in the file browser.");
+    }
+}
+
 export async function cancelCompression(event: IpcMainInvokeEvent, token: string): Promise<CompressionOperationResult> {
     const job = getOwnedJob(event, token);
     if (!job) return operationError("The compression job is unavailable.");
@@ -1001,11 +1034,6 @@ export async function releaseCompression(
 }
 
 export async function cancelAllCompressions(event: IpcMainInvokeEvent): Promise<void> {
-    const tokens = [...(ownerJobs.get(event.sender.id) ?? [])];
-    await Promise.all(
-        tokens.map(async token => {
-            const job = jobs.get(token);
-            if (job) await cancelJob(job);
-        })
-    );
+    await startupJobCleanup;
+    await cancelOwnerJobs(event.sender.id);
 }
